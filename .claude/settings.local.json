@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest add card input label textarea badge dialog dropdown-menu separator scroll-area tabs avatar sheet tooltip select popover command 2>&1 | tail -10)",
+      "Bash(npx shadcn@latest add --all --yes 2>&1 | tail -5)",
+      "Bash(find /Users/jasond/jdrg/src/app/api/auth -type f 2>/dev/null; find /Users/jasond/jdrg/src/app/api/cron -type f 2>/dev/null; find /Users/jasond/jdrg/src/lib/gmail* -type f 2>/dev/null)",
+      "Bash(npx next:*)",
+      "Bash(echo -e \"jason@hungry.llc\\\\nJDRG2026!\" | npx tsx scripts/setup.ts 2>&1)",
+      "Bash(npx tsx:*)",
+      "Bash(npm run:*)",
+      "Bash(curl -s -X POST http://localhost:3000/api/documents/upload -F \"file=@/Users/jasond/jdrg/package.json\" 2>&1)",
+      "Bash(npx playwright:*)",
+      "Bash(echo \"test\" | curl -s -X POST http://localhost:3000/api/documents/upload -F \"file=@/Users/jasond/jdrg/package.json;type=application/pdf;filename=test.pdf\" 2>&1 | head -5)",
+      "Bash(sleep 3 && curl -s -X POST http://localhost:3000/api/documents/upload -F \"file=@/Users/jasond/jdrg/README.md\" 2>&1 | head -5)",
+      "Bash(node -e \"\nconst fs = require\\('fs'\\);\n// Create a minimal valid PDF\nconst pdf = '%PDF-1.4\\\\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\\\\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\\\\n3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\\\\n4 0 obj<</Length 44>>stream\\\\nBT /F1 12 Tf 100 700 Td \\(Hello World\\) Tj ET\\\\nendstream\\\\nendobj\\\\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\\\\nxref\\\\n0 6\\\\n0000000000 65535 f \\\\n0000000009 00000 n \\\\n0000000058 00000 n \\\\n0000000115 00000 n \\\\n0000000266 00000 n \\\\n0000000360 00000 n \\\\ntrailer<</Size 6/Root 1 0 R>>\\\\nstartxref\\\\n427\\\\n%%EOF';\nfs.writeFileSync\\('/tmp/test.pdf', pdf\\);\nconsole.log\\('Created test PDF'\\);\n\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/documents/upload -F \"file=@/tmp/test.pdf;type=application/pdf\" 2>&1)",
+      "Bash(node -e \"\nconst fs = require\\('fs'\\);\nconst buf = fs.readFileSync\\('/tmp/test.pdf'\\);\nimport\\('unpdf'\\).then\\(async \\({ extractText }\\) => {\n  const result = await extractText\\(new Uint8Array\\(buf\\)\\);\n  console.log\\('type:', typeof result\\);\n  console.log\\('result:', JSON.stringify\\(result\\).slice\\(0, 200\\)\\);\n}\\).catch\\(e => console.error\\(e\\)\\);\n\")",
+      "Bash(sleep 2 && curl -s -X POST http://localhost:3000/api/documents/upload -F \"file=@/tmp/test.pdf;type=application/pdf\" 2>&1)",
+      "Bash(sleep 3 && curl -s -X POST http://localhost:3000/api/chat \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"message\": \"I just hired a new GM named Carlos for the Mountain View store. He starts next Monday.\", \"conversation_id\": null, \"project_id\": null}' 2>&1 | head -20)",
+      "Bash(npx skills:*)",
+      "Bash(find /Users/jasond/jdrg -type f \\\\\\( -name \"*.sql\" -o -name \"*schema*\" -o -name \"*migration*\" \\\\\\) 2>/dev/null | head -20)",
+      "Bash(cat /Users/jasond/.claude/projects/-Users-jasond-jdrg/d2b4e02a-b8d0-4661-a419-50b75feb2663/tool-results/toolu_01NeAkkCKoDp5wUSNpEUNF1T.json | python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0]['text']\\)\")",
+      "Bash(lsof -ti:3000,3001,3002 | xargs kill -9 2>/dev/null; sleep 1 && npx next dev -p 3000)",
+      "Bash(ls -la /Users/jasond/jdrg/.agents/skills/frontend-design/ 2>/dev/null; echo \"---\"; ls -la /Users/jasond/jdrg/.claude/skills/ 2>/dev/null; echo \"---\"; find /Users/jasond/jdrg/.claude -name \"*.md\" -path \"*skill*\" 2>/dev/null; echo \"---\"; find /Users/jasond/jdrg/.agents -name \"*.md\" 2>/dev/null | head -20)",
+      "Bash(lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 1 && npx next dev -p 3000)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)"
+    ]
+  }
+}

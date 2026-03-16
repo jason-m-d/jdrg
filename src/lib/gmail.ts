@@ -1,0 +1,105 @@
+import { supabaseAdmin } from '@/lib/supabase'
+
+export async function refreshAccessToken(account: string): Promise<string> {
+  const { data: token } = await supabaseAdmin
+    .from('gmail_tokens')
+    .select('*')
+    .eq('account', account)
+    .single()
+
+  if (!token) throw new Error(`No token found for ${account}`)
+
+  // Check if still valid
+  if (token.expires_at && new Date(token.expires_at) > new Date()) {
+    return token.access_token
+  }
+
+  // Refresh
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GMAIL_CLIENT_ID!,
+      client_secret: process.env.GMAIL_CLIENT_SECRET!,
+      refresh_token: token.refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  })
+
+  const data = await res.json()
+  if (data.error) throw new Error(`Token refresh failed: ${data.error}`)
+
+  await supabaseAdmin.from('gmail_tokens').update({
+    access_token: data.access_token,
+    expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
+  }).eq('account', account)
+
+  return data.access_token
+}
+
+export async function fetchEmails(account: string, since: Date) {
+  const accessToken = await refreshAccessToken(account)
+  const sinceEpoch = Math.floor(since.getTime() / 1000)
+
+  const listRes = await fetch(
+    `https://www.googleapis.com/gmail/v1/users/me/messages?q=after:${sinceEpoch}&maxResults=50`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const listData = await listRes.json()
+
+  if (!listData.messages) return []
+
+  const emails = []
+  for (const msg of listData.messages) {
+    const msgRes = await fetch(
+      `https://www.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const msgData = await msgRes.json()
+
+    const headers = msgData.payload?.headers || []
+    const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
+    const from = headers.find((h: any) => h.name === 'From')?.value || ''
+    const body = getEmailBody(msgData.payload)
+
+    emails.push({
+      id: msg.id,
+      subject,
+      from,
+      body,
+      internalDate: msgData.internalDate,
+    })
+  }
+
+  return emails
+}
+
+function getEmailBody(payload: any): string {
+  if (!payload) return ''
+
+  if (payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64url').toString('utf-8')
+  }
+
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64url').toString('utf-8')
+      }
+    }
+    // Fallback to HTML
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/html' && part.body?.data) {
+        const html = Buffer.from(part.body.data, 'base64url').toString('utf-8')
+        return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      }
+    }
+    // Recurse into multipart
+    for (const part of payload.parts) {
+      const body = getEmailBody(part)
+      if (body) return body
+    }
+  }
+
+  return ''
+}
