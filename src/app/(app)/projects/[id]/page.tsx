@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import {
   Loader2, FileText, MessageSquare, Pin, PinOff, ArrowUp, Settings2,
-  Upload, Plus, Trash2, X, Check, PanelLeftClose, PanelLeftOpen
+  Upload, Plus, Trash2, X, Check, PanelLeftClose, PanelLeftOpen, BookOpen, Pencil
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
@@ -13,7 +13,7 @@ import { ChatMessages } from '@/components/chat-messages'
 
 const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#6B7280', '#06B6D4']
 
-type Panel = 'conversations' | 'files' | 'settings'
+type Panel = 'conversations' | 'files' | 'context' | 'settings'
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>()
@@ -42,6 +42,14 @@ export default function ProjectPage() {
   const [availableDocs, setAvailableDocs] = useState<any[]>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
 
+  // Context state
+  const [contextEntries, setContextEntries] = useState<any[]>([])
+  const [editingContextId, setEditingContextId] = useState<string | null>(null)
+  const [contextTitle, setContextTitle] = useState('')
+  const [contextContent, setContextContent] = useState('')
+  const [savingContext, setSavingContext] = useState(false)
+  const [addingContext, setAddingContext] = useState(false)
+
   // Edit state
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
@@ -54,15 +62,17 @@ export default function ProjectPage() {
 
   async function loadProject() {
     const supabase = getSupabaseBrowser()
-    const [{ data: proj }, { data: convos }, { data: docs }] = await Promise.all([
+    const [{ data: proj }, { data: convos }, { data: docs }, { data: ctxEntries }] = await Promise.all([
       supabase.from('projects').select('*').eq('id', id).single(),
       supabase.from('conversations').select('*').eq('project_id', id).order('updated_at', { ascending: false }),
       supabase.from('documents').select('*').eq('project_id', id).order('is_pinned', { ascending: false }).order('updated_at', { ascending: false }),
+      supabase.from('project_context').select('*').eq('project_id', id).order('updated_at', { ascending: false }),
     ])
 
     setProject(proj)
     setConversations(convos || [])
     setDocuments(docs || [])
+    setContextEntries(ctxEntries || [])
     setLoading(false)
 
     if (proj) {
@@ -119,6 +129,7 @@ export default function ProjectPage() {
       let fullText = ''
       let sources: any[] = []
       const actionItemEvents: any[] = []
+      const addToProjectEvents: any[] = []
 
       while (reader) {
         const { done, value } = await reader.read()
@@ -137,6 +148,9 @@ export default function ProjectPage() {
               }
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
+              }
+              if (data.add_to_project) {
+                addToProjectEvents.push(data.add_to_project)
               }
               if (data.done) {
                 if (data.sources) sources = data.sources
@@ -165,6 +179,7 @@ export default function ProjectPage() {
         content: fullText,
         sources,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
+        addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {
@@ -295,6 +310,7 @@ export default function ProjectPage() {
             {([
               { key: 'conversations' as Panel, icon: MessageSquare },
               { key: 'files' as Panel, icon: FileText },
+              { key: 'context' as Panel, icon: BookOpen },
               { key: 'settings' as Panel, icon: Settings2 },
             ]).map(t => (
               <button
@@ -387,6 +403,145 @@ export default function ProjectPage() {
                             <X className="size-2.5" />
                           </button>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Context panel */}
+            {panel === 'context' && (
+              <div>
+                <button
+                  onClick={() => { setAddingContext(true); setContextTitle(''); setContextContent('') }}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors border-b border-border"
+                >
+                  <Plus className="size-3" />
+                  Add context
+                </button>
+
+                {addingContext && (
+                  <div className="p-3 border-b border-border space-y-2">
+                    <input
+                      value={contextTitle}
+                      onChange={(e) => setContextTitle(e.target.value)}
+                      placeholder="Title"
+                      className="w-full bg-transparent border border-border px-2 py-1 text-[11px] outline-none focus:border-foreground/30 transition-colors"
+                      autoFocus
+                    />
+                    <textarea
+                      value={contextContent}
+                      onChange={(e) => setContextContent(e.target.value)}
+                      placeholder="Context content..."
+                      className="w-full bg-transparent border border-border px-2 py-1.5 text-[11px] outline-none focus:border-foreground/30 transition-colors min-h-[80px] resize-y leading-relaxed"
+                    />
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={async () => {
+                          if (!contextTitle.trim()) return
+                          setSavingContext(true)
+                          await fetch('/api/project-context', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ project_id: id, title: contextTitle.trim(), content: contextContent.trim() }),
+                          })
+                          const { data } = await getSupabaseBrowser()
+                            .from('project_context').select('*').eq('project_id', id)
+                            .order('updated_at', { ascending: false })
+                          setContextEntries(data || [])
+                          setAddingContext(false)
+                          setSavingContext(false)
+                        }}
+                        disabled={savingContext || !contextTitle.trim()}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-foreground text-background transition-opacity hover:opacity-80 disabled:opacity-30"
+                      >
+                        {savingContext ? <Loader2 className="size-2.5 animate-spin" /> : <Check className="size-2.5" />}
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setAddingContext(false)}
+                        className="px-2 py-1 text-[10px] border border-border text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {contextEntries.length === 0 && !addingContext ? (
+                  <p className="text-[11px] text-muted-foreground/40 px-4 py-6 text-center">No context entries</p>
+                ) : (
+                  <div>
+                    {contextEntries.map(ctx => (
+                      <div key={ctx.id} className="border-b border-border">
+                        {editingContextId === ctx.id ? (
+                          <div className="p-3 space-y-2">
+                            <input
+                              value={contextTitle}
+                              onChange={(e) => setContextTitle(e.target.value)}
+                              className="w-full bg-transparent border border-border px-2 py-1 text-[11px] font-medium outline-none focus:border-foreground/30 transition-colors"
+                              autoFocus
+                            />
+                            <textarea
+                              value={contextContent}
+                              onChange={(e) => setContextContent(e.target.value)}
+                              className="w-full bg-transparent border border-border px-2 py-1.5 text-[11px] outline-none focus:border-foreground/30 transition-colors min-h-[80px] resize-y leading-relaxed"
+                            />
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={async () => {
+                                  if (!contextTitle.trim()) return
+                                  setSavingContext(true)
+                                  await fetch(`/api/project-context/${ctx.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ title: contextTitle.trim(), content: contextContent.trim() }),
+                                  })
+                                  const { data } = await getSupabaseBrowser()
+                                    .from('project_context').select('*').eq('project_id', id)
+                                    .order('updated_at', { ascending: false })
+                                  setContextEntries(data || [])
+                                  setEditingContextId(null)
+                                  setSavingContext(false)
+                                }}
+                                disabled={savingContext || !contextTitle.trim()}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-foreground text-background transition-opacity hover:opacity-80 disabled:opacity-30"
+                              >
+                                {savingContext ? <Loader2 className="size-2.5 animate-spin" /> : <Check className="size-2.5" />}
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingContextId(null)}
+                                className="px-2 py-1 text-[10px] border border-border text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm('Delete this context entry?')) return
+                                  await fetch(`/api/project-context/${ctx.id}`, { method: 'DELETE' })
+                                  setContextEntries(prev => prev.filter(c => c.id !== ctx.id))
+                                  setEditingContextId(null)
+                                }}
+                                className="ml-auto px-2 py-1 text-[10px] text-muted-foreground/40 hover:text-destructive transition-colors"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className="px-3 py-2.5 hover:bg-muted/30 transition-colors cursor-pointer group"
+                            onClick={() => { setEditingContextId(ctx.id); setContextTitle(ctx.title); setContextContent(ctx.content) }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-medium truncate flex-1">{ctx.title}</span>
+                              <Pencil className="size-2.5 text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground/40 mt-0.5 line-clamp-2 leading-relaxed">{ctx.content}</p>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

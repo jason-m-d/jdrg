@@ -65,6 +65,7 @@ export default function ConversationPage() {
       let fullText = ''
       let sources: any[] = []
       const actionItemEvents: any[] = []
+      const addToProjectEvents: any[] = []
 
       while (reader) {
         const { done, value } = await reader.read()
@@ -84,6 +85,9 @@ export default function ConversationPage() {
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
               }
+              if (data.add_to_project) {
+                addToProjectEvents.push(data.add_to_project)
+              }
               if (data.done) {
                 if (data.sources) sources = data.sources
               }
@@ -100,6 +104,7 @@ export default function ConversationPage() {
         content: fullText,
         sources,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
+        addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {

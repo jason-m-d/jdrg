@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
-import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, buildContext } from '@/lib/rag'
+import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, retrieveRelevantContextChunks, buildContext } from '@/lib/rag'
+import { chunkAndEmbedContext } from '@/lib/embed-context'
 import { buildSystemPrompt } from '@/lib/system-prompt'
 import type { ActionItem } from '@/lib/types'
 
@@ -44,6 +45,40 @@ const ACTION_ITEM_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const ADD_TO_PROJECT_TOOL: Anthropic.Messages.Tool = {
+  name: 'add_to_project',
+  description: 'Add context from the current conversation to a project. Use when Jason says things like "add this to Marketing" or "save this to the Ops project". Summarize only the relevant parts of the conversation - ignore unrelated topics discussed in the same chat.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      project_name: {
+        type: 'string',
+        description: 'The name (or partial name) of the target project',
+      },
+      summary_title: {
+        type: 'string',
+        description: 'A short descriptive title for the context entry',
+      },
+      summary_content: {
+        type: 'string',
+        description: 'A detailed summary of the relevant conversation context. Include key facts, decisions, numbers, and takeaways. Ignore unrelated topics from the same chat.',
+      },
+      relevant_messages: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            role: { type: 'string', enum: ['user', 'assistant'] },
+            content: { type: 'string' },
+          },
+        },
+        description: 'The relevant messages to copy into a linked conversation on the project. Only include messages related to the project topic.',
+      },
+    },
+    required: ['project_name', 'summary_title', 'summary_content', 'relevant_messages'],
+  },
+}
+
 export async function POST(req: NextRequest) {
   const { message, conversation_id, project_id } = await req.json()
 
@@ -75,7 +110,7 @@ export async function POST(req: NextRequest) {
     .limit(20)
 
   // RAG retrieval + action items in parallel
-  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult] = await Promise.all([
+  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks] = await Promise.all([
     retrieveRelevantChunks(message, project_id),
     project_id ? getPinnedDocuments(project_id) : Promise.resolve([]),
     getRelevantMemories(message),
@@ -88,13 +123,16 @@ export async function POST(req: NextRequest) {
     project_id
       ? supabaseAdmin.from('projects').select('system_prompt').eq('id', project_id).single()
       : Promise.resolve({ data: null }),
+    project_id
+      ? retrieveRelevantContextChunks(message, project_id)
+      : Promise.resolve([]),
   ])
 
   const actionItems: ActionItem[] = actionItemsResult.data || []
   const projectPrompt = projectResult.data?.system_prompt || ''
 
   // Build context
-  const context = buildContext(chunks, pinnedDocs, memories)
+  const context = buildContext(chunks, pinnedDocs, memories, contextChunks)
   const systemPrompt = buildSystemPrompt({
     projectSystemPrompt: projectPrompt,
     memories,
@@ -126,7 +164,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: systemPrompt,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL],
+            tools: [ACTION_ITEM_TOOL, ADD_TO_PROJECT_TOOL],
           })
 
           // Collect content blocks for this turn
@@ -164,15 +202,21 @@ export async function POST(req: NextRequest) {
                 } as Anthropic.Messages.ContentBlock)
 
                 // Execute the tool
-                const toolResult = await executeActionItemTool(toolInput, convId, actionItems)
-
-                // Send action_item event to frontend
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                  action_item: {
-                    operation: toolInput.operation,
-                    result: toolResult,
-                  }
-                })}\n\n`))
+                let toolResult: any
+                if (currentToolUse.name === 'add_to_project') {
+                  toolResult = await executeAddToProject(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    add_to_project: toolResult,
+                  })}\n\n`))
+                } else {
+                  toolResult = await executeActionItemTool(toolInput, convId, actionItems)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    action_item: {
+                      operation: toolInput.operation,
+                      result: toolResult,
+                    }
+                  })}\n\n`))
+                }
 
                 // Build messages for next turn
                 currentMessages = [
@@ -335,6 +379,66 @@ async function executeActionItemTool(
 
     default:
       return { status: 'error', message: `Unknown operation: ${input.operation}` }
+  }
+}
+
+async function executeAddToProject(
+  input: { project_name: string; summary_title: string; summary_content: string; relevant_messages?: { role: string; content: string }[] },
+): Promise<{ status: string; project_name?: string; conversation_url?: string; message?: string }> {
+  // Find project by fuzzy name match
+  const { data: projects } = await supabaseAdmin
+    .from('projects')
+    .select('id, name')
+    .ilike('name', `%${input.project_name}%`)
+    .limit(5)
+
+  if (!projects || projects.length === 0) {
+    return { status: 'error', message: `No project found matching "${input.project_name}"` }
+  }
+  const project = projects[0]
+
+  // Create linked conversation with relevant messages
+  let conversationId: string | null = null
+  if (input.relevant_messages && input.relevant_messages.length > 0) {
+    const { data: conv } = await supabaseAdmin
+      .from('conversations')
+      .insert({ title: input.summary_title, project_id: project.id })
+      .select()
+      .single()
+
+    if (conv) {
+      conversationId = conv.id
+      for (const msg of input.relevant_messages) {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conv.id,
+          role: msg.role,
+          content: msg.content,
+        })
+      }
+    }
+  }
+
+  // Create context entry
+  const { data: ctx, error } = await supabaseAdmin
+    .from('project_context')
+    .insert({
+      project_id: project.id,
+      title: input.summary_title,
+      content: input.summary_content,
+      source_conversation_id: conversationId,
+    })
+    .select()
+    .single()
+
+  if (error) return { status: 'error', message: error.message }
+
+  // Background: chunk and embed
+  chunkAndEmbedContext(ctx.id, input.summary_content).catch(console.error)
+
+  return {
+    status: 'added',
+    project_name: project.name,
+    conversation_url: `/projects/${project.id}`,
   }
 }
 

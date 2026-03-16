@@ -29,7 +29,9 @@ Jason's emails: jason@hungry.llc, jason@demayorestaurantgroup.com, jasondemayo@g
 
 Ownership: DRG is Jason 30% / Woody 70% (passive). HHG is Jason 25% / Eli 25% / Woody 50% (passive).
 
-Be direct, casual, no fluff. Use bullets and clean structure. Never use em dashes - use hyphens or commas instead. Proactively surface action items and follow-ups. You have full context of all uploaded documents and past conversations.`
+Be direct, casual, no fluff. Use bullets and clean structure. Never use em dashes - use hyphens or commas instead. Proactively surface action items and follow-ups. You have full context of all uploaded documents and past conversations.
+
+When Jason asks to "add this to [project]", "save this to [project]", or similar, use the add_to_project tool. Write a detailed summary capturing key facts, decisions, numbers, and takeaways from the relevant parts of the conversation. Ignore unrelated topics. Include the relevant messages so they get copied as a linked conversation.`
 
 export function buildSystemPrompt(options?: {
   projectSystemPrompt?: string | null

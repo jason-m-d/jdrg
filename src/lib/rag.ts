@@ -86,10 +86,58 @@ export async function getRelevantMemories(
   return (data as Memory[]) || []
 }
 
+interface ContextChunkWithMeta {
+  id: string
+  context_id: string
+  chunk_index: number
+  content: string
+  similarity: number
+}
+
+export async function retrieveRelevantContextChunks(
+  query: string,
+  projectId: string,
+  limit = 5,
+  threshold = 0.7
+): Promise<ContextChunkWithMeta[]> {
+  const embedding = await generateQueryEmbedding(query)
+
+  const { data, error } = await supabaseAdmin.rpc('match_context', {
+    query_embedding: embedding,
+    match_threshold: threshold,
+    match_count: limit,
+  })
+
+  if (error) {
+    console.error('Error retrieving context chunks:', error)
+    return []
+  }
+
+  let chunks = (data as ContextChunkWithMeta[]) || []
+
+  // Filter to only chunks belonging to this project
+  if (chunks.length > 0) {
+    const contextIds = [...new Set(chunks.map(c => c.context_id))]
+    const { data: contexts } = await supabaseAdmin
+      .from('project_context')
+      .select('id')
+      .in('id', contextIds)
+      .eq('project_id', projectId)
+
+    if (contexts) {
+      const projectContextIds = new Set(contexts.map(c => c.id))
+      chunks = chunks.filter(c => projectContextIds.has(c.context_id))
+    }
+  }
+
+  return chunks
+}
+
 export function buildContext(
   chunks: ChunkWithMeta[],
   pinnedDocs: Document[],
-  memories: Memory[]
+  memories: Memory[],
+  contextChunks?: ContextChunkWithMeta[]
 ): string {
   const parts: string[] = []
 
@@ -113,6 +161,16 @@ export function buildContext(
       )
       .join('\n\n')
     parts.push(`## Retrieved Context\n${chunkSection}`)
+  }
+
+  if (contextChunks && contextChunks.length > 0) {
+    const ctxSection = contextChunks
+      .map(
+        (c, i) =>
+          `[Context ${i + 1}, similarity: ${c.similarity.toFixed(3)}]\n${c.content}`
+      )
+      .join('\n\n')
+    parts.push(`## Project Context\n${ctxSection}`)
   }
 
   if (memories.length > 0) {

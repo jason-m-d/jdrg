@@ -2,7 +2,8 @@
 
 import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Check, ChevronDown, FileText, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { Check, ChevronDown, FileText, FolderOpen, Loader2, Plus, RefreshCw } from 'lucide-react'
+import Link from 'next/link'
 
 interface ChatMessagesProps {
   messages: any[]
@@ -102,6 +103,15 @@ function MessageBlock({ message, isLatest }: { message: any; isLatest?: boolean 
         <div className="mt-3 space-y-1.5">
           {message.actionItemEvents.map((evt: any, i: number) => (
             <ActionItemCard key={i} event={evt} />
+          ))}
+        </div>
+      )}
+
+      {/* Add to Project */}
+      {message.addToProjectEvents && message.addToProjectEvents.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {message.addToProjectEvents.map((evt: any, i: number) => (
+            <AddToProjectCard key={i} event={evt} />
           ))}
         </div>
       )}
@@ -245,6 +255,27 @@ function ActionItemCard({ event }: { event: any }) {
       {item?.priority === 'high' && (
         <span className="text-[10px] uppercase tracking-wider text-red-500/70 ml-auto shrink-0">high</span>
       )}
+    </div>
+  )
+}
+
+function AddToProjectCard({ event }: { event: any }) {
+  if (event.status === 'error') {
+    return (
+      <div className="flex items-center gap-2 text-[12px] border border-border px-3 py-2">
+        <FolderOpen className="size-3 shrink-0 text-red-500" />
+        <span className="text-muted-foreground">{event.message}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-[12px] border border-border px-3 py-2">
+      <FolderOpen className="size-3 shrink-0 text-blue-500" />
+      <span className="text-muted-foreground">Added to</span>
+      <Link href={event.conversation_url || '#'} className="text-foreground/80 font-medium hover:underline">
+        {event.project_name}
+      </Link>
     </div>
   )
 }

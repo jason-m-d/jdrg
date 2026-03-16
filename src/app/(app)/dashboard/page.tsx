@@ -129,6 +129,7 @@ export default function HomePage() {
       let fullText = ''
       let sources: any[] = []
       const actionItemEvents: any[] = []
+      const addToProjectEvents: any[] = []
 
       while (reader) {
         const { done, value } = await reader.read()
@@ -147,6 +148,9 @@ export default function HomePage() {
               }
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
+              }
+              if (data.add_to_project) {
+                addToProjectEvents.push(data.add_to_project)
               }
               if (data.done) {
                 if (data.conversation_id && !conversationId) {
@@ -167,6 +171,7 @@ export default function HomePage() {
         content: fullText,
         sources,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
+        addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {

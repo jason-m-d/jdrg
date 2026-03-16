@@ -110,6 +110,32 @@ export interface GmailToken {
   created_at: string
 }
 
+export interface ProjectContext {
+  id: string
+  project_id: string
+  title: string
+  content: string
+  source_conversation_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ContextChunk {
+  id: string
+  context_id: string
+  chunk_index: number
+  content: string | null
+  embedding: number[] | null
+  created_at: string
+}
+
+export interface AddToProjectEvent {
+  status: string
+  project_name?: string
+  conversation_url?: string
+  message?: string
+}
+
 export interface ActionItemEvent {
   action_item: {
     operation: 'create' | 'complete' | 'update' | 'list'
