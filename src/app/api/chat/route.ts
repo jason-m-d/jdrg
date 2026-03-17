@@ -506,6 +506,10 @@ export async function POST(req: NextRequest) {
         while (continueLoop) {
           continueLoop = false
 
+          if (currentMessages.length > 1) {
+            console.log('API call messages tail:', JSON.stringify(currentMessages.slice(-3)))
+          }
+
           const response = anthropic.messages.stream({
             model: selectedModel,
             max_tokens: 4096,
@@ -727,7 +731,7 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, conversation_id: convId, sources })}\n\n`))
         controller.close()
       } catch (error) {
-        console.error('Chat error:', error)
+        console.error('Chat error:', error instanceof Error ? error.message : error, (error as any)?.status, (error as any)?.error)
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`))
         controller.close()
       }
