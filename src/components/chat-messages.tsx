@@ -86,7 +86,7 @@ export function ChatMessages({ messages, streamingContent, loading, onArtifactCl
           />
         ))}
         {streamingContent && (
-          <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest />
+          <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest isStreaming={loading} />
         )}
         {loading && !streamingContent && (
           <div className="py-6 animate-in-up">
@@ -162,7 +162,7 @@ function ProactiveFeedback({ messageContent }: { messageContent: string }) {
   )
 }
 
-function MessageBlock({ message, isLatest, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
+function MessageBlock({ message, isLatest, isStreaming, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; isStreaming?: boolean; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
   const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const isUser = message.role === 'user'
@@ -197,6 +197,13 @@ function MessageBlock({ message, isLatest, onArtifactClick, onCopy, onEdit }: { 
         isAlert && "border-l-2 border-red-500/30 pl-4",
       )}>
         <FormattedContent content={message.content} />
+        {isStreaming && (
+          <span className="inline-flex items-center gap-1 ml-1 align-middle">
+            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite' }} />
+            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.2s' }} />
+            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.4s' }} />
+          </span>
+        )}
       </div>
 
       {/* User message actions */}
