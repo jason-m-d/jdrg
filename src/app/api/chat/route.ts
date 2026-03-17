@@ -515,7 +515,7 @@ export async function POST(req: NextRequest) {
           })
 
           // Collect content blocks for this turn
-          const contentBlocks: Anthropic.Messages.ContentBlock[] = []
+          const contentBlocks: Anthropic.Messages.ContentBlockParam[] = []
           let currentTextBlock = ''
           let currentToolUse: { id: string; name: string; inputJson: string } | null = null
 
@@ -557,7 +557,7 @@ export async function POST(req: NextRequest) {
                 // Execute the tool
                 let toolResult: any
                 if (currentToolUse.name === 'manage_artifact') {
-                  toolResult = await executeArtifactTool(toolInput, convId)
+                  toolResult = await executeArtifactTool(toolInput, convId, project_id)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     artifact: {
                       operation: toolInput.operation,
@@ -689,7 +689,6 @@ export async function POST(req: NextRequest) {
                 contentBlocks.push({
                   type: 'text',
                   text: currentTextBlock,
-                  citations: [],
                 })
                 currentTextBlock = ''
               }
@@ -892,6 +891,7 @@ async function executeActionItemTool(
 async function executeArtifactTool(
   input: { operation: string; artifact_id?: string; name?: string; content?: string; type?: string },
   conversationId: string,
+  projectId?: string | null,
 ): Promise<{ status: string; artifact?: Artifact; message?: string }> {
   if (input.operation === 'create') {
     if (!input.name || !input.content) return { status: 'error', message: 'Name and content are required' }
@@ -903,6 +903,7 @@ async function executeArtifactTool(
         content: input.content,
         type: input.type || 'freeform',
         conversation_id: conversationId,
+        project_id: projectId || null,
         version: 1,
       })
       .select()
