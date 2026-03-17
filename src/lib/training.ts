@@ -7,10 +7,11 @@ import type { TrainingRule } from '@/lib/types'
  */
 export async function getRelevantTrainingExamples(
   snippet: string,
-  limit = 5
+  limit = 5,
+  precomputedEmbedding?: number[]
 ): Promise<{ id: string; snippet: string; is_action_item: boolean; similarity: number }[]> {
   try {
-    const embedding = await generateQueryEmbedding(snippet.slice(0, 2000))
+    const embedding = precomputedEmbedding || await generateQueryEmbedding(snippet.slice(0, 2000))
 
     const { data, error } = await supabaseAdmin.rpc('match_training_examples', {
       query_embedding: embedding,
@@ -47,9 +48,9 @@ export async function getActiveRules(): Promise<TrainingRule[]> {
  * Build a few-shot prompt block from similar training examples + active rules.
  * Returns null if no examples or rules exist (nothing to inject).
  */
-export async function buildFewShotBlock(snippet: string): Promise<string | null> {
+export async function buildFewShotBlock(snippet: string, precomputedEmbedding?: number[]): Promise<string | null> {
   const [examples, rules] = await Promise.all([
-    getRelevantTrainingExamples(snippet),
+    getRelevantTrainingExamples(snippet, 5, precomputedEmbedding),
     getActiveRules(),
   ])
 

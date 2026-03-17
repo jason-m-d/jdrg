@@ -14,9 +14,10 @@ export async function retrieveRelevantChunks(
   query: string,
   projectId?: string,
   limit = 8,
-  threshold = 0.7
+  threshold = 0.7,
+  precomputedEmbedding?: number[]
 ): Promise<ChunkWithMeta[]> {
-  const embedding = await generateQueryEmbedding(query)
+  const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
 
   const { data, error } = await supabaseAdmin.rpc('match_documents', {
     query_embedding: embedding,
@@ -98,9 +99,10 @@ export async function retrieveRelevantContextChunks(
   query: string,
   projectId?: string,
   limit = 5,
-  threshold = 0.7
+  threshold = 0.7,
+  precomputedEmbedding?: number[]
 ): Promise<ContextChunkWithMeta[]> {
-  const embedding = await generateQueryEmbedding(query)
+  const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
 
   const { data, error } = await supabaseAdmin.rpc('match_context', {
     query_embedding: embedding,

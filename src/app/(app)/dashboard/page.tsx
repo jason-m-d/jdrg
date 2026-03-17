@@ -22,7 +22,12 @@ const PAGE_SIZE = 50
 
 export default function HomePage() {
   const [messages, setMessages] = useState<any[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('jdrg-main-conv-id') || null
+    }
+    return null
+  })
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [initialLoading, setInitialLoading] = useState(true)
@@ -39,6 +44,13 @@ export default function HomePage() {
   const shouldRestoreScroll = useRef(false)
   const greetingFetched = useRef(false)
 
+  // Persist conversation ID to localStorage so it survives hot reloads
+  useEffect(() => {
+    if (conversationId) {
+      localStorage.setItem('jdrg-main-conv-id', conversationId)
+    }
+  }, [conversationId])
+
   useEffect(() => {
     loadMainConversation()
   }, [])
@@ -54,14 +66,14 @@ export default function HomePage() {
   async function loadMainConversation() {
     const supabase = getSupabaseBrowser()
 
-    const [{ data: conv }, { data: cards }] = await Promise.all([
-      supabase
-        .from('conversations')
-        .select('id')
-        .is('project_id', null)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .single(),
+    // Use cached conversation ID if available, otherwise query for most recent
+    const cachedConvId = localStorage.getItem('jdrg-main-conv-id')
+
+    const [convResult, { data: cards }] = await Promise.all([
+      cachedConvId
+        ? supabase.from('conversations').select('id').eq('id', cachedConvId).is('project_id', null).single()
+            .then(res => res.data ? res : supabase.from('conversations').select('id').is('project_id', null).order('updated_at', { ascending: false }).limit(1).single())
+        : supabase.from('conversations').select('id').is('project_id', null).order('updated_at', { ascending: false }).limit(1).single(),
       supabase
         .from('dashboard_cards')
         .select('*')
@@ -69,6 +81,7 @@ export default function HomePage() {
         .order('position'),
     ])
 
+    const conv = convResult.data
     setDashboardCards(cards || [])
 
     if (conv) {
@@ -91,6 +104,9 @@ export default function HomePage() {
       setMessages((msgs || []).reverse())
       setHasMore((msgs || []).length === PAGE_SIZE)
       if (arts && arts.length > 0) setArtifacts(arts)
+    } else {
+      // Cached conversation was deleted — clear it
+      localStorage.removeItem('jdrg-main-conv-id')
     }
 
     setInitialLoading(false)
@@ -213,7 +229,14 @@ export default function HomePage() {
         }),
       })
 
+      if (!res.ok) {
+        throw new Error(`Chat request failed: ${res.status}`)
+      }
+
       const reader = res.body?.getReader()
+      if (!reader) {
+        throw new Error('No response stream')
+      }
       const decoder = new TextDecoder()
       let fullText = ''
       let sources: any[] = []
@@ -227,13 +250,16 @@ export default function HomePage() {
       const dashboardCardEvents: any[] = []
       const notificationRuleEvents: any[] = []
       const preferenceEvents: any[] = []
+      let buffer = ''
 
       while (reader) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        // Keep the last partial line in the buffer
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -313,7 +339,9 @@ export default function HomePage() {
               if (data.error) {
                 fullText = 'Error: ' + data.error
               }
-            } catch {}
+            } catch (e) {
+              console.error('SSE parse error:', e, 'line:', line)
+            }
           }
         }
       }

@@ -68,7 +68,9 @@ export default function ConversationPage() {
         }),
       })
 
+      if (!res.ok) throw new Error(`Chat request failed: ${res.status}`)
       const reader = res.body?.getReader()
+      if (!reader) throw new Error('No response stream')
       const decoder = new TextDecoder()
       let fullText = ''
       let sources: any[] = []
@@ -77,13 +79,15 @@ export default function ConversationPage() {
       const artifactEvents: any[] = []
       const gmailSearchEvents: any[] = []
       const trainingEvents: any[] = []
+      let buffer = ''
 
       while (reader) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
