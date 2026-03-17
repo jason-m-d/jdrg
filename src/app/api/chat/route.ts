@@ -383,14 +383,20 @@ export async function POST(req: NextRequest) {
     .order('created_at', { ascending: true })
     .limit(20)
 
+  // Skip vector search for short/vague messages - embeddings on "hi", "yes", "ok" etc.
+  // will latch onto whatever happens to be in the store and hallucinate context
+  const isSubstantiveMessage = message.trim().split(/\s+/).length >= 4
+
   // Generate query embedding once and reuse for all vector searches
-  const queryEmbedding = await generateQueryEmbedding(message).catch(e => { console.error('Query embedding failed:', e.message); return undefined })
+  const queryEmbedding = isSubstantiveMessage
+    ? await generateQueryEmbedding(message).catch(e => { console.error('Query embedding failed:', e.message); return undefined })
+    : undefined
 
   // RAG retrieval + action items + artifacts + all projects + training context in parallel
   const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult, dashboardCardsResult, notificationRulesResult, uiPreferencesResult, trainingContext] = await Promise.all([
-    retrieveRelevantChunks(message, project_id, 8, 0.7, queryEmbedding).catch(e => { console.error('RAG retrieval failed:', e.message); return [] }),
+    isSubstantiveMessage ? retrieveRelevantChunks(message, project_id, 8, 0.7, queryEmbedding).catch(e => { console.error('RAG retrieval failed:', e.message); return [] }) : Promise.resolve([]),
     project_id ? getPinnedDocuments(project_id) : Promise.resolve([]),
-    getRelevantMemories(message),
+    isSubstantiveMessage ? getRelevantMemories(message) : Promise.resolve([]),
     supabaseAdmin
       .from('action_items')
       .select('*')
@@ -400,7 +406,7 @@ export async function POST(req: NextRequest) {
     project_id
       ? supabaseAdmin.from('projects').select('system_prompt').eq('id', project_id).single()
       : Promise.resolve({ data: null }),
-    retrieveRelevantContextChunks(message, project_id, 5, 0.7, queryEmbedding).catch(e => { console.error('Context retrieval failed:', e.message); return [] }),
+    isSubstantiveMessage ? retrieveRelevantContextChunks(message, project_id, 5, 0.7, queryEmbedding).catch(e => { console.error('Context retrieval failed:', e.message); return [] }) : Promise.resolve([]),
     convId
       ? supabaseAdmin.from('artifacts').select('*').eq('conversation_id', convId).order('updated_at', { ascending: false })
       : Promise.resolve({ data: [] }),
@@ -408,7 +414,7 @@ export async function POST(req: NextRequest) {
     supabaseAdmin.from('dashboard_cards').select('*').eq('is_active', true).order('position'),
     supabaseAdmin.from('notification_rules').select('*').eq('is_active', true).order('created_at', { ascending: false }),
     supabaseAdmin.from('ui_preferences').select('*'),
-    buildFewShotBlock(message, queryEmbedding).catch(e => { console.error('Training context failed:', e.message); return null }),
+    isSubstantiveMessage ? buildFewShotBlock(message, queryEmbedding).catch(e => { console.error('Training context failed:', e.message); return null }) : Promise.resolve(null),
   ])
 
   const actionItems: ActionItem[] = actionItemsResult.data || []
