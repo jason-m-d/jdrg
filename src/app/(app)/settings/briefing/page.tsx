@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
-import { Plus, Trash2, Edit2, Save, X, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Edit2, Save, X, Loader2, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isPushSupported, requestNotificationPermission, unsubscribeFromPush, getPushSubscriptionState } from '@/lib/push-client'
 
 const STORE_NAMES: Record<string, string> = {
   '326': 'Coleman',
@@ -30,8 +31,14 @@ export default function BriefingSettingsPage() {
   const [editContent, setEditContent] = useState('')
   const [newContent, setNewContent] = useState('')
   const [adding, setAdding] = useState(false)
+  const [pushState, setPushState] = useState<'granted' | 'denied' | 'default' | 'unsupported' | 'loading'>('loading')
+  const [pushToggling, setPushToggling] = useState(false)
 
   useEffect(() => { loadPreferences() }, [])
+
+  useEffect(() => {
+    getPushSubscriptionState().then(setPushState)
+  }, [])
 
   async function loadPreferences() {
     setLoading(true)
@@ -124,6 +131,67 @@ export default function BriefingSettingsPage() {
         <p className="text-[0.75rem] text-muted-foreground/50">
           Teach J.DRG what matters. These preferences shape your morning briefing and real-time alerts.
         </p>
+      </div>
+
+      {/* Push notifications */}
+      <div className="space-y-3">
+        <span className="text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium">
+          Push Notifications
+        </span>
+        <div className="border border-border">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Bell className="size-3.5 text-muted-foreground/60" />
+              <div>
+                <span className="text-[0.8125rem]">
+                  {pushState === 'unsupported'
+                    ? 'Not supported on this device'
+                    : pushState === 'denied'
+                    ? 'Notifications blocked'
+                    : pushState === 'granted'
+                    ? 'Notifications enabled'
+                    : 'Enable push notifications'}
+                </span>
+                {pushState === 'denied' && (
+                  <p className="text-[0.6875rem] text-muted-foreground/40 mt-0.5">
+                    Unblock in your browser settings to enable
+                  </p>
+                )}
+                {pushState === 'unsupported' && (
+                  <p className="text-[0.6875rem] text-muted-foreground/40 mt-0.5">
+                    Install this app to your home screen first (iOS 16.4+)
+                  </p>
+                )}
+              </div>
+            </div>
+            {pushState !== 'unsupported' && pushState !== 'denied' && pushState !== 'loading' && (
+              <button
+                onClick={async () => {
+                  setPushToggling(true)
+                  if (pushState === 'granted') {
+                    await unsubscribeFromPush()
+                    setPushState('default')
+                  } else {
+                    const ok = await requestNotificationPermission()
+                    setPushState(ok ? 'granted' : 'denied')
+                  }
+                  setPushToggling(false)
+                }}
+                disabled={pushToggling}
+                className={cn(
+                  'relative w-9 h-5 rounded-full transition-colors',
+                  pushState === 'granted' ? 'bg-foreground' : 'bg-muted-foreground/20',
+                  pushToggling && 'opacity-50'
+                )}
+              >
+                <span className={cn(
+                  'absolute top-0.5 left-0.5 size-4 rounded-full bg-background transition-transform',
+                  pushState === 'granted' && 'translate-x-4'
+                )} />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Quick toggles */}
