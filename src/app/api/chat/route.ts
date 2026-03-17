@@ -122,7 +122,7 @@ Use proactively when the conversation is clearly relevant to a project - ask Jas
 
 const SEARCH_GMAIL_TOOL: Anthropic.Messages.Tool = {
   name: 'search_gmail',
-  description: `Search Jason's Gmail for emails matching a query. Uses the same search syntax as the Gmail search bar (from:, subject:, newer_than:, has:attachment, etc.). Use this when Jason asks you to find, look up, or reference emails. Build smart queries from natural language — try alternate terms or acronyms if the first search returns few results (e.g. try "LSM" if "local store marketing" returns nothing). You can call this tool multiple times to refine your search.`,
+  description: `Search Jason's Gmail for emails matching a query. Uses the same search syntax as the Gmail search bar (from:, subject:, newer_than:, has:attachment, etc.). Use this when Jason asks you to find, look up, or reference emails. Build smart queries from natural language — try alternate terms or acronyms if the first search returns few results (e.g. try "LSM" if "local store marketing" returns nothing). You can call this tool multiple times to refine your search. IMPORTANT: If a broad query like "in:inbox newer_than:1d" returns 0 results, that is almost certainly a connector problem — Jason always has emails. Flag it explicitly: "I got 0 results which seems wrong — the Gmail connector may be broken." Do not assume the inbox is empty.`,
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -577,7 +577,7 @@ export async function POST(req: NextRequest) {
                     toolResult = { status: 'error', message: e.message }
                   }
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                    gmail_search: { query: toolInput.query, result_count: toolResult.result_count || 0 },
+                    gmail_search: { query: toolInput.query, result_count: toolResult.result_count || 0, error: toolResult.status === 'error' ? toolResult.message : undefined },
                   })}\n\n`))
                 } else if (currentToolUse.name === 'draft_email') {
                   try {

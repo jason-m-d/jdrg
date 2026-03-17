@@ -566,13 +566,14 @@ function AddToProjectCard({ event }: { event: any }) {
 }
 
 function GmailSearchCard({ event }: { event: any }) {
+  const hasError = !!event.error
   return (
-    <div className="flex items-center gap-2 text-[0.75rem] border border-border px-3 py-2">
-      <Mail className="size-3 shrink-0 text-red-400" />
+    <div className={cn("flex items-center gap-2 text-[0.75rem] border px-3 py-2", hasError ? "border-red-500/40" : "border-border")}>
+      <Mail className={cn("size-3 shrink-0", hasError ? "text-red-500" : "text-red-400")} />
       <span className="text-muted-foreground">Searched Gmail:</span>
       <span className="text-foreground/80 truncate">{event.query}</span>
-      <span className="text-[0.625rem] text-muted-foreground/50 ml-auto shrink-0">
-        {event.result_count} result{event.result_count !== 1 ? 's' : ''}
+      <span className={cn("text-[0.625rem] ml-auto shrink-0", hasError ? "text-red-500/70" : "text-muted-foreground/50")}>
+        {hasError ? 'error' : `${event.result_count} result${event.result_count !== 1 ? 's' : ''}`}
       </span>
     </div>
   )

@@ -19,6 +19,10 @@ export async function searchEmails(query: string, maxResults: number = 10) {
   )
   const listData = await listRes.json()
 
+  if (listData.error) {
+    throw new Error(`Gmail API error: ${listData.error.message || JSON.stringify(listData.error)}`)
+  }
+
   if (!listData.messages) return []
 
   const emails = []
@@ -92,6 +96,10 @@ export async function fetchEmails(account: string, since: Date) {
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   const listData = await listRes.json()
+
+  if (listData.error) {
+    throw new Error(`Gmail API error: ${listData.error.message || JSON.stringify(listData.error)}`)
+  }
 
   if (!listData.messages) return []
 
