@@ -5,6 +5,7 @@ import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { Plus, Trash2, Edit2, Save, X, Loader2, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isPushSupported, requestNotificationPermission, unsubscribeFromPush, getPushSubscriptionState } from '@/lib/push-client'
+import { useAuth } from '@/components/auth-provider'
 
 const STORE_NAMES: Record<string, string> = {
   '326': 'Coleman',
@@ -25,6 +26,7 @@ const QUICK_TOGGLES = [
 ]
 
 export default function BriefingSettingsPage() {
+  const { user } = useAuth()
   const [preferences, setPreferences] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -167,12 +169,13 @@ export default function BriefingSettingsPage() {
             {pushState !== 'unsupported' && pushState !== 'denied' && pushState !== 'loading' && (
               <button
                 onClick={async () => {
+                  if (!user) return
                   setPushToggling(true)
                   if (pushState === 'granted') {
-                    await unsubscribeFromPush()
+                    await unsubscribeFromPush(user.id)
                     setPushState('default')
                   } else {
-                    const ok = await requestNotificationPermission()
+                    const ok = await requestNotificationPermission(user.id)
                     setPushState(ok ? 'granted' : 'denied')
                   }
                   setPushToggling(false)

@@ -1,37 +1,15 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
-
-function getSupabaseServer() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      global: {
-        headers: {
-          cookie: cookies().toString(),
-        },
-      },
-    }
-  )
-}
+import { supabaseAdmin } from '@/lib/supabase'
 
 export async function POST(req: Request) {
-  const supabase = getSupabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user_id, endpoint, p256dh, auth } = await req.json()
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const { endpoint, p256dh, auth } = await req.json()
-
-  if (!endpoint || !p256dh || !auth) {
+  if (!user_id || !endpoint || !p256dh || !auth) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
-  const { error } = await supabase.from('push_subscriptions').upsert(
-    { user_id: user.id, endpoint, p256dh, auth },
+  const { error } = await supabaseAdmin.from('push_subscriptions').upsert(
+    { user_id, endpoint, p256dh, auth },
     { onConflict: 'user_id,endpoint' }
   )
 
@@ -43,23 +21,16 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const supabase = getSupabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user_id, endpoint } = await req.json()
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user_id || !endpoint) {
+    return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
-  const { endpoint } = await req.json()
-
-  if (!endpoint) {
-    return NextResponse.json({ error: 'Missing endpoint' }, { status: 400 })
-  }
-
-  await supabase
+  await supabaseAdmin
     .from('push_subscriptions')
     .delete()
-    .eq('user_id', user.id)
+    .eq('user_id', user_id)
     .eq('endpoint', endpoint)
 
   return NextResponse.json({ ok: true })

@@ -7,7 +7,7 @@ export function isPushSupported() {
   )
 }
 
-export async function requestNotificationPermission(): Promise<boolean> {
+export async function requestNotificationPermission(userId: string): Promise<boolean> {
   if (!isPushSupported()) return false
 
   const permission = await Notification.requestPermission()
@@ -28,6 +28,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      user_id: userId,
       endpoint: json.endpoint,
       p256dh: json.keys?.p256dh,
       auth: json.keys?.auth,
@@ -37,7 +38,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return true
 }
 
-export async function unsubscribeFromPush(): Promise<void> {
+export async function unsubscribeFromPush(userId: string): Promise<void> {
   if (!isPushSupported()) return
 
   const registration = await navigator.serviceWorker.ready
@@ -47,7 +48,7 @@ export async function unsubscribeFromPush(): Promise<void> {
     await fetch('/api/push/subscribe', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: subscription.endpoint }),
+      body: JSON.stringify({ user_id: userId, endpoint: subscription.endpoint }),
     })
     await subscription.unsubscribe()
   }
