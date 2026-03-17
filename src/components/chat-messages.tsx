@@ -68,16 +68,6 @@ export function ChatMessages({ messages, streamingContent, loading, onArtifactCl
   return (
     <div className="px-4 pt-6 pb-2">
       <div className="max-w-3xl mx-auto">
-        {messages.map((msg, i) => (
-          <MessageBlock
-            key={msg.id || i}
-            message={msg}
-            isLatest={i === messages.length - 1 && !streamingContent && !greetingData}
-            onArtifactClick={onArtifactClick}
-            onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
-            onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
-          />
-        ))}
         {greetingData && (
           <GreetingCard
             greeting={greetingData.text}
@@ -85,6 +75,16 @@ export function ChatMessages({ messages, streamingContent, loading, onArtifactCl
             onItemHandled={onGreetingItemHandled}
           />
         )}
+        {messages.map((msg, i) => (
+          <MessageBlock
+            key={msg.id || i}
+            message={msg}
+            isLatest={i === messages.length - 1 && !streamingContent}
+            onArtifactClick={onArtifactClick}
+            onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
+            onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
+          />
+        ))}
         {streamingContent && (
           <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest />
         )}
