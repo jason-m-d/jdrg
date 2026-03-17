@@ -3,10 +3,11 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Brain, Mail, User } from 'lucide-react'
+import { Bell, Brain, Mail, User } from 'lucide-react'
 
 const settingsNav = [
   { href: '/settings/memory', label: 'Memory', icon: Brain },
+  { href: '/settings/briefing', label: 'Briefing & Alerts', icon: Bell },
   { href: '/settings/email', label: 'Email', icon: Mail },
   { href: '/settings/account', label: 'Account', icon: User },
 ]

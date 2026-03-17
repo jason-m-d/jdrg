@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { fetchEmails } from '@/lib/gmail'
+import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -167,7 +168,90 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Post-scan alerts: check if anything noteworthy warrants an alert
+  try {
+    await maybeGenerateAlert(totalItems)
+  } catch (e) {
+    console.error('Alert generation failed:', e)
+  }
+
   return NextResponse.json({ emails_processed: totalProcessed, action_items_found: totalItems })
+}
+
+async function maybeGenerateAlert(newActionItemCount: number) {
+  // Check if we should alert at all
+  const alertWorthy: string[] = []
+
+  // 1. New high-priority action items from this scan
+  if (newActionItemCount > 0) {
+    const { data: recentItems } = await supabaseAdmin
+      .from('action_items')
+      .select('title, priority')
+      .eq('source', 'email')
+      .eq('priority', 'high')
+      .gte('created_at', new Date(Date.now() - 3600000).toISOString()) // last hour
+    if (recentItems && recentItems.length > 0) {
+      alertWorthy.push(`New high-priority action items: ${recentItems.map(i => i.title).join(', ')}`)
+    }
+  }
+
+  // 2. Stores significantly under target (<70%)
+  const today = new Date().toISOString().split('T')[0]
+  const { data: todaySales } = await supabaseAdmin
+    .from('sales_data')
+    .select('store_number, store_name, brand, net_sales')
+    .eq('report_date', today)
+
+  if (todaySales) {
+    for (const sale of todaySales) {
+      const target = sale.brand === 'wingstop' ? 8000 : 3000
+      if (sale.net_sales && sale.net_sales < target * 0.7) {
+        const pct = Math.round((sale.net_sales / target) * 100)
+        alertWorthy.push(`${sale.store_name || sale.store_number} at ${pct}% of target ($${sale.net_sales.toLocaleString()})`)
+      }
+    }
+  }
+
+  if (alertWorthy.length === 0) return
+
+  // Load preferences and check if user wants alerts suppressed
+  const preferences = await getUserPreferences()
+  const suppressAll = preferences.some(p =>
+    p.toLowerCase().includes('no alert') || p.toLowerCase().includes('disable alert')
+  )
+  if (suppressAll) return
+
+  // Check if high-priority only preference
+  const highPriorityOnly = preferences.some(p =>
+    p.toLowerCase().includes('only') && p.toLowerCase().includes('high-priority')
+  )
+  if (highPriorityOnly && newActionItemCount === 0) return
+
+  // Guard against alert fatigue: no alert if one was sent in last 2 hours
+  const convId = await getMainConversation()
+  const { data: recentAlerts } = await supabaseAdmin
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', convId)
+    .eq('role', 'assistant')
+    .like('content', '⚡ **Alert**%')
+    .gte('created_at', new Date(Date.now() - 2 * 3600000).toISOString())
+    .limit(1)
+
+  if (recentAlerts && recentAlerts.length > 0) return
+
+  // Generate a short alert via Claude
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 256,
+    system: `Write a very short alert (2-3 sentences max) for Jason DeMayo. Be direct, no fluff. Use hyphens not em dashes.${preferences.length > 0 ? `\n\nUser preferences:\n${preferences.map(p => `- ${p}`).join('\n')}` : ''}`,
+    messages: [{ role: 'user', content: `Alert items:\n${alertWorthy.map(a => `- ${a}`).join('\n')}` }],
+  })
+
+  const alertText = response.content[0].type === 'text' ? response.content[0].text : ''
+  if (!alertText) return
+
+  await insertProactiveMessage(convId, `⚡ **Alert**\n\n${alertText}`)
 }
 
 // Also support GET for Vercel Cron

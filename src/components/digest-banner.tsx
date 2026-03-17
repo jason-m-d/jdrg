@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronDown, X } from 'lucide-react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import Link from 'next/link'
@@ -42,6 +42,20 @@ function fmtFull(n: number | null) {
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function isStaleScanned(dateStr: string) {
+  return Date.now() - new Date(dateStr).getTime() > 2 * 60 * 60 * 1000 // >2 hours
+}
+
 const PRIORITY_INDICATOR: Record<string, string> = {
   high: 'bg-red-500',
   medium: 'bg-yellow-500',
@@ -55,6 +69,12 @@ export function DigestBanner() {
   const [salesLoaded, setSalesLoaded] = useState(false)
   const [actionItems, setActionItems] = useState<any[]>([])
   const [actionCount, setActionCount] = useState(0)
+  const [lastScanned, setLastScanned] = useState<string | null>(null)
+  const [sinceLastVisit, setSinceLastVisit] = useState<{
+    newActions: number
+    newSales: number
+    newProactive: number
+  } | null>(null)
 
   useEffect(() => {
     const supabase = getSupabaseBrowser()
@@ -74,6 +94,44 @@ export function DigestBanner() {
 
     supabase.from('action_items').select('id', { count: 'exact' }).eq('status', 'pending')
       .then(({ count }) => setActionCount(count || 0))
+
+    supabase.from('email_scans').select('last_scanned_at')
+      .order('last_scanned_at', { ascending: false }).limit(1).single()
+      .then(({ data }) => setLastScanned(data?.last_scanned_at || null))
+
+    // Since last visit
+    fetch('/api/user-state?key=last_visit')
+      .then(r => r.json())
+      .then(async ({ value }) => {
+        const lastVisit = value?.timestamp || null
+        if (lastVisit) {
+          const [actionsRes, salesRes, proactiveRes] = await Promise.all([
+            supabase.from('action_items').select('id', { count: 'exact', head: true })
+              .gte('created_at', lastVisit),
+            supabase.from('sales_data').select('id', { count: 'exact', head: true })
+              .gte('parsed_at', lastVisit),
+            supabase.from('messages').select('id', { count: 'exact', head: true })
+              .eq('role', 'assistant')
+              .or('content.like.☀️ **Morning Briefing%,content.like.⚡ **Alert%')
+              .gte('created_at', lastVisit),
+          ])
+          const total = (actionsRes.count || 0) + (salesRes.count || 0) + (proactiveRes.count || 0)
+          if (total > 0) {
+            setSinceLastVisit({
+              newActions: actionsRes.count || 0,
+              newSales: salesRes.count || 0,
+              newProactive: proactiveRes.count || 0,
+            })
+          }
+        }
+        // Update last visit to now
+        fetch('/api/user-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'last_visit', value: { timestamp: new Date().toISOString() } }),
+        })
+      })
+      .catch(() => {}) // silently fail if user_state table doesn't exist yet
   }, [])
 
   const wsTotal = WINGSTOP_STORES.reduce((sum, s) => sum + (salesData[s.number] || 0), 0)
@@ -136,6 +194,31 @@ export function DigestBanner() {
               <span className="font-medium text-foreground/60">{actionCount}</span>
               <span>action{actionCount !== 1 ? 's' : ''}</span>
             </span>
+
+            {lastScanned && (
+              <>
+                <span className="w-px h-3 bg-border" />
+                <span className={cn(
+                  'text-[10px]',
+                  isStaleScanned(lastScanned) ? 'text-amber-500/70' : 'text-muted-foreground/40'
+                )}>
+                  Scanned {timeAgo(lastScanned)}
+                </span>
+              </>
+            )}
+
+            {sinceLastVisit && (
+              <>
+                <span className="w-px h-3 bg-border" />
+                <span className="text-[10px] text-blue-500/60">
+                  {[
+                    sinceLastVisit.newActions > 0 && `${sinceLastVisit.newActions} new action${sinceLastVisit.newActions !== 1 ? 's' : ''}`,
+                    sinceLastVisit.newSales > 0 && `${sinceLastVisit.newSales} sales update${sinceLastVisit.newSales !== 1 ? 's' : ''}`,
+                    sinceLastVisit.newProactive > 0 && `${sinceLastVisit.newProactive} briefing${sinceLastVisit.newProactive !== 1 ? 's' : ''}`,
+                  ].filter(Boolean).join(', ')} since last visit
+                </span>
+              </>
+            )}
           </span>
 
           <ChevronDown className={cn(

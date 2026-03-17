@@ -36,6 +36,7 @@ export default function ProjectsPage() {
     setDialogOpen(false)
     setName(''); setDescription(''); setColor('#3B82F6'); setSystemPrompt('')
     loadProjects()
+    window.dispatchEvent(new Event('sidebar-refresh'))
   }
 
   async function handleDelete(e: React.MouseEvent, projectId: string, projectName: string) {
@@ -45,6 +46,7 @@ export default function ProjectsPage() {
 
     await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
     setProjects(prev => prev.filter(p => p.id !== projectId))
+    window.dispatchEvent(new Event('sidebar-refresh'))
   }
 
   return (

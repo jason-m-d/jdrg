@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS user_state (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);

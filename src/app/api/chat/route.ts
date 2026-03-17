@@ -4,7 +4,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, retrieveRelevantContextChunks, buildContext } from '@/lib/rag'
 import { chunkAndEmbedContext } from '@/lib/embed-context'
 import { buildSystemPrompt } from '@/lib/system-prompt'
-import type { ActionItem } from '@/lib/types'
+import { searchEmails } from '@/lib/gmail'
+import type { ActionItem, Artifact } from '@/lib/types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -45,42 +46,96 @@ const ACTION_ITEM_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
-const ADD_TO_PROJECT_TOOL: Anthropic.Messages.Tool = {
-  name: 'add_to_project',
-  description: 'Add context from the current conversation to a project. Use when Jason says things like "add this to Marketing" or "save this to the Ops project". Summarize only the relevant parts of the conversation - ignore unrelated topics discussed in the same chat.',
+const ARTIFACT_TOOL: Anthropic.Messages.Tool = {
+  name: 'manage_artifact',
+  description: 'Create or update an artifact (a named document like a plan, spec, checklist, or freeform note). Artifacts appear in a side panel alongside the chat. Always send the FULL content, not a diff or partial update.',
   input_schema: {
     type: 'object' as const,
     properties: {
+      operation: {
+        type: 'string',
+        enum: ['create', 'update'],
+        description: 'Whether to create a new artifact or update an existing one',
+      },
+      artifact_id: {
+        type: 'string',
+        description: 'The artifact ID to update (required for update operation)',
+      },
+      name: {
+        type: 'string',
+        description: 'Name/title for the artifact',
+      },
+      content: {
+        type: 'string',
+        description: 'Full markdown content of the artifact. Always send complete content, never diffs.',
+      },
+      type: {
+        type: 'string',
+        enum: ['plan', 'spec', 'checklist', 'freeform'],
+        description: 'Type of artifact. Default: freeform',
+      },
+    },
+    required: ['operation', 'name', 'content'],
+  },
+}
+
+const MANAGE_PROJECT_CONTEXT_TOOL: Anthropic.Messages.Tool = {
+  name: 'manage_project_context',
+  description: `Add, update, or archive context entries on a project. Use this to keep project knowledge current.
+- "create": Add new context from the conversation. Write a thorough summary - this will be retrieved in future conversations.
+- "update": Update an existing context entry when new information changes it (e.g. an initiative is completed, a decision changed, new details emerged). Provide the full updated content, not a diff.
+- "archive": Mark a context entry as outdated/completed so it stops surfacing in future conversations.
+Use proactively when the conversation is clearly relevant to a project - ask Jason first before adding.`,
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      operation: {
+        type: 'string',
+        enum: ['create', 'update', 'archive'],
+        description: 'The operation to perform',
+      },
       project_name: {
         type: 'string',
         description: 'The name (or partial name) of the target project',
       },
+      context_id: {
+        type: 'string',
+        description: 'The context entry ID (required for update and archive operations)',
+      },
       summary_title: {
         type: 'string',
-        description: 'A short descriptive title for the context entry',
+        description: 'A short descriptive title for the context entry (required for create, optional for update)',
       },
       summary_content: {
         type: 'string',
-        description: 'A detailed summary of the relevant conversation context. Include key facts, decisions, numbers, and takeaways. Ignore unrelated topics from the same chat.',
-      },
-      relevant_messages: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            role: { type: 'string', enum: ['user', 'assistant'] },
-            content: { type: 'string' },
-          },
-        },
-        description: 'The relevant messages to copy into a linked conversation on the project. Only include messages related to the project topic.',
+        description: 'A thorough, detailed summary. Include ALL key facts, decisions, numbers, action items, open questions, and takeaways. For updates, send the full updated content reflecting the current state. Required for create and update.',
       },
     },
-    required: ['project_name', 'summary_title', 'summary_content', 'relevant_messages'],
+    required: ['operation', 'project_name'],
+  },
+}
+
+const SEARCH_GMAIL_TOOL: Anthropic.Messages.Tool = {
+  name: 'search_gmail',
+  description: `Search Jason's Gmail for emails matching a query. Uses the same search syntax as the Gmail search bar (from:, subject:, newer_than:, has:attachment, etc.). Use this when Jason asks you to find, look up, or reference emails. Build smart queries from natural language — try alternate terms or acronyms if the first search returns few results (e.g. try "LSM" if "local store marketing" returns nothing). You can call this tool multiple times to refine your search.`,
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Gmail search query (same syntax as Gmail search bar)',
+      },
+      max_results: {
+        type: 'number',
+        description: 'Max emails to return (default 10)',
+      },
+    },
+    required: ['query'],
   },
 }
 
 export async function POST(req: NextRequest) {
-  const { message, conversation_id, project_id } = await req.json()
+  const { message, conversation_id, project_id, active_artifact_id } = await req.json()
 
   // Create or get conversation
   let convId = conversation_id
@@ -109,9 +164,9 @@ export async function POST(req: NextRequest) {
     .order('created_at', { ascending: true })
     .limit(20)
 
-  // RAG retrieval + action items in parallel
-  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks] = await Promise.all([
-    retrieveRelevantChunks(message, project_id),
+  // RAG retrieval + action items + artifacts + all projects in parallel
+  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult] = await Promise.all([
+    retrieveRelevantChunks(message, project_id).catch(e => { console.error('RAG retrieval failed:', e.message); return [] }),
     project_id ? getPinnedDocuments(project_id) : Promise.resolve([]),
     getRelevantMemories(message),
     supabaseAdmin
@@ -123,13 +178,17 @@ export async function POST(req: NextRequest) {
     project_id
       ? supabaseAdmin.from('projects').select('system_prompt').eq('id', project_id).single()
       : Promise.resolve({ data: null }),
-    project_id
-      ? retrieveRelevantContextChunks(message, project_id)
-      : Promise.resolve([]),
+    retrieveRelevantContextChunks(message, project_id).catch(e => { console.error('Context retrieval failed:', e.message); return [] }),
+    convId
+      ? supabaseAdmin.from('artifacts').select('*').eq('conversation_id', convId).order('updated_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+    supabaseAdmin.from('projects').select('id, name, description').order('name'),
   ])
 
   const actionItems: ActionItem[] = actionItemsResult.data || []
+  const artifacts: Artifact[] = artifactsResult.data || []
   const projectPrompt = projectResult.data?.system_prompt || ''
+  const allProjects: { id: string; name: string; description: string | null }[] = allProjectsResult.data || []
 
   // Build context
   const context = buildContext(chunks, pinnedDocs, memories, contextChunks)
@@ -138,6 +197,10 @@ export async function POST(req: NextRequest) {
     memories,
     documentContext: context,
     actionItems,
+    artifacts,
+    activeArtifactId: active_artifact_id,
+    projects: allProjects,
+    currentProjectId: project_id,
   })
 
   // Build messages array for Claude
@@ -164,7 +227,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: systemPrompt,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, ADD_TO_PROJECT_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL],
           })
 
           // Collect content blocks for this turn
@@ -203,10 +266,28 @@ export async function POST(req: NextRequest) {
 
                 // Execute the tool
                 let toolResult: any
-                if (currentToolUse.name === 'add_to_project') {
-                  toolResult = await executeAddToProject(toolInput)
+                if (currentToolUse.name === 'manage_artifact') {
+                  toolResult = await executeArtifactTool(toolInput, convId)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                    add_to_project: toolResult,
+                    artifact: {
+                      operation: toolInput.operation,
+                      artifact: toolResult.artifact,
+                    },
+                  })}\n\n`))
+                } else if (currentToolUse.name === 'manage_project_context') {
+                  toolResult = await executeManageProjectContext(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    project_context: toolResult,
+                  })}\n\n`))
+                } else if (currentToolUse.name === 'search_gmail') {
+                  try {
+                    const emails = await searchEmails(toolInput.query, toolInput.max_results || 10)
+                    toolResult = { status: 'ok', result_count: emails.length, emails }
+                  } catch (e: any) {
+                    toolResult = { status: 'error', message: e.message }
+                  }
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    gmail_search: { query: toolInput.query, result_count: toolResult.result_count || 0 },
                   })}\n\n`))
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
@@ -382,9 +463,81 @@ async function executeActionItemTool(
   }
 }
 
-async function executeAddToProject(
-  input: { project_name: string; summary_title: string; summary_content: string; relevant_messages?: { role: string; content: string }[] },
-): Promise<{ status: string; project_name?: string; conversation_url?: string; message?: string }> {
+async function executeArtifactTool(
+  input: { operation: string; artifact_id?: string; name?: string; content?: string; type?: string },
+  conversationId: string,
+): Promise<{ status: string; artifact?: Artifact; message?: string }> {
+  if (input.operation === 'create') {
+    if (!input.name || !input.content) return { status: 'error', message: 'Name and content are required' }
+
+    const { data, error } = await supabaseAdmin
+      .from('artifacts')
+      .insert({
+        name: input.name,
+        content: input.content,
+        type: input.type || 'freeform',
+        conversation_id: conversationId,
+        version: 1,
+      })
+      .select()
+      .single()
+
+    if (error) return { status: 'error', message: error.message }
+
+    // Insert version 1
+    await supabaseAdmin.from('artifact_versions').insert({
+      artifact_id: data.id,
+      content: input.content,
+      version: 1,
+      change_summary: 'Initial version',
+      changed_by: 'assistant',
+    })
+
+    return { status: 'created', artifact: data }
+  }
+
+  if (input.operation === 'update') {
+    if (!input.artifact_id) return { status: 'error', message: 'artifact_id is required for update' }
+    if (!input.content) return { status: 'error', message: 'content is required for update' }
+
+    // Get current to snapshot
+    const { data: current } = await supabaseAdmin.from('artifacts').select('*').eq('id', input.artifact_id).single()
+    if (!current) return { status: 'error', message: 'Artifact not found' }
+
+    // Snapshot old version
+    await supabaseAdmin.from('artifact_versions').insert({
+      artifact_id: input.artifact_id,
+      content: current.content,
+      version: current.version,
+      change_summary: null,
+      changed_by: 'assistant',
+    })
+
+    const updates: Record<string, any> = {
+      content: input.content,
+      version: current.version + 1,
+      updated_at: new Date().toISOString(),
+    }
+    if (input.name) updates.name = input.name
+    if (input.type) updates.type = input.type
+
+    const { data, error } = await supabaseAdmin
+      .from('artifacts')
+      .update(updates)
+      .eq('id', input.artifact_id)
+      .select()
+      .single()
+
+    if (error) return { status: 'error', message: error.message }
+    return { status: 'updated', artifact: data }
+  }
+
+  return { status: 'error', message: `Unknown operation: ${input.operation}` }
+}
+
+async function executeManageProjectContext(
+  input: { operation: string; project_name: string; context_id?: string; summary_title?: string; summary_content?: string },
+): Promise<{ status: string; project_name?: string; project_id?: string; context_id?: string; message?: string }> {
   // Find project by fuzzy name match
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -397,48 +550,71 @@ async function executeAddToProject(
   }
   const project = projects[0]
 
-  // Create linked conversation with relevant messages
-  let conversationId: string | null = null
-  if (input.relevant_messages && input.relevant_messages.length > 0) {
-    const { data: conv } = await supabaseAdmin
-      .from('conversations')
-      .insert({ title: input.summary_title, project_id: project.id })
-      .select()
-      .single()
-
-    if (conv) {
-      conversationId = conv.id
-      for (const msg of input.relevant_messages) {
-        await supabaseAdmin.from('messages').insert({
-          conversation_id: conv.id,
-          role: msg.role,
-          content: msg.content,
-        })
+  switch (input.operation) {
+    case 'create': {
+      if (!input.summary_title || !input.summary_content) {
+        return { status: 'error', message: 'summary_title and summary_content are required for create' }
       }
+
+      const { data: ctx, error } = await supabaseAdmin
+        .from('project_context')
+        .insert({
+          project_id: project.id,
+          title: input.summary_title,
+          content: input.summary_content,
+        })
+        .select()
+        .single()
+
+      if (error) return { status: 'error', message: error.message }
+
+      // Background: chunk and embed
+      chunkAndEmbedContext(ctx.id, input.summary_content).catch(console.error)
+
+      return { status: 'created', project_name: project.name, project_id: project.id, context_id: ctx.id }
     }
-  }
 
-  // Create context entry
-  const { data: ctx, error } = await supabaseAdmin
-    .from('project_context')
-    .insert({
-      project_id: project.id,
-      title: input.summary_title,
-      content: input.summary_content,
-      source_conversation_id: conversationId,
-    })
-    .select()
-    .single()
+    case 'update': {
+      if (!input.context_id) return { status: 'error', message: 'context_id is required for update' }
+      if (!input.summary_content) return { status: 'error', message: 'summary_content is required for update' }
 
-  if (error) return { status: 'error', message: error.message }
+      const update: Record<string, any> = {
+        content: input.summary_content,
+        updated_at: new Date().toISOString(),
+      }
+      if (input.summary_title) update.title = input.summary_title
 
-  // Background: chunk and embed
-  chunkAndEmbedContext(ctx.id, input.summary_content).catch(console.error)
+      const { data: ctx, error } = await supabaseAdmin
+        .from('project_context')
+        .update(update)
+        .eq('id', input.context_id)
+        .select()
+        .single()
 
-  return {
-    status: 'added',
-    project_name: project.name,
-    conversation_url: `/projects/${project.id}`,
+      if (error) return { status: 'error', message: error.message }
+
+      // Re-chunk and re-embed with updated content
+      chunkAndEmbedContext(ctx.id, ctx.content).catch(console.error)
+
+      return { status: 'updated', project_name: project.name, project_id: project.id, context_id: ctx.id }
+    }
+
+    case 'archive': {
+      if (!input.context_id) return { status: 'error', message: 'context_id is required for archive' }
+
+      // Delete the context entry and its chunks (cascade handles chunks)
+      const { error } = await supabaseAdmin
+        .from('project_context')
+        .delete()
+        .eq('id', input.context_id)
+
+      if (error) return { status: 'error', message: error.message }
+
+      return { status: 'archived', project_name: project.name, project_id: project.id, context_id: input.context_id }
+    }
+
+    default:
+      return { status: 'error', message: `Unknown operation: ${input.operation}` }
   }
 }
 
@@ -483,6 +659,15 @@ Rules:
 - If completely new, use "create".
 - If nothing new worth storing, return empty arrays.
 - Jason = Jerry = Jason DeMayo. Never store this alias as a separate memory.
+
+PREFERENCE DETECTION — pay special attention to statements about alerts, notifications, briefings, and what Jason cares about. These should be stored with category "preference". Examples:
+- "Stop alerting me about X" → preference: "Do not alert about X"
+- "Always tell me when Y" → preference: "Always alert when Y happens"
+- "I don't care about Z" → preference: "Exclude Z from briefings and alerts"
+- "Morning briefings should focus on..." → preference about briefing content
+- "Only alert for high-priority items" → preference about alert threshold
+- "Include/exclude [store/topic] in briefings" → preference about briefing scope
+Any time Jason expresses what he wants to see more or less of, that's a preference.
 
 EXISTING MEMORIES:
 ${existingList || '(none)'}

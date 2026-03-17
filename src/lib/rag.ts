@@ -96,7 +96,7 @@ interface ContextChunkWithMeta {
 
 export async function retrieveRelevantContextChunks(
   query: string,
-  projectId: string,
+  projectId?: string,
   limit = 5,
   threshold = 0.7
 ): Promise<ContextChunkWithMeta[]> {
@@ -115,8 +115,9 @@ export async function retrieveRelevantContextChunks(
 
   let chunks = (data as ContextChunkWithMeta[]) || []
 
-  // Filter to only chunks belonging to this project
-  if (chunks.length > 0) {
+  // If a specific project is provided, filter to only that project's chunks
+  // Otherwise, return chunks from all projects (for main chat cross-project retrieval)
+  if (projectId && chunks.length > 0) {
     const contextIds = [...new Set(chunks.map(c => c.context_id))]
     const { data: contexts } = await supabaseAdmin
       .from('project_context')

@@ -3,22 +3,27 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { DigestBanner } from '@/components/digest-banner'
-import { Loader2, ArrowUp } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { ChatMessages } from '@/components/chat-messages'
+import { ChatInput } from '@/components/chat-input'
+import { ArtifactPanel } from '@/components/artifact-panel'
+import type { Artifact } from '@/lib/types'
 
 const PAGE_SIZE = 50
 
 export default function HomePage() {
   const [messages, setMessages] = useState<any[]>([])
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [initialLoading, setInitialLoading] = useState(true)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [openArtifactIds, setOpenArtifactIds] = useState<string[]>([])
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null)
+  const [showArtifactPanel, setShowArtifactPanel] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const prevScrollHeightRef = useRef<number>(0)
   const shouldRestoreScroll = useRef(false)
 
@@ -48,15 +53,23 @@ export default function HomePage() {
     if (conv) {
       setConversationId(conv.id)
 
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', conv.id)
-        .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE)
+      const [{ data: msgs }, { data: arts }] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', conv.id)
+          .order('created_at', { ascending: false })
+          .limit(PAGE_SIZE),
+        supabase
+          .from('artifacts')
+          .select('*')
+          .eq('conversation_id', conv.id)
+          .order('updated_at', { ascending: false }),
+      ])
 
       setMessages((msgs || []).reverse())
       setHasMore((msgs || []).length === PAGE_SIZE)
+      if (arts && arts.length > 0) setArtifacts(arts)
     }
 
     setInitialLoading(false)
@@ -99,19 +112,12 @@ export default function HomePage() {
     }
   }
 
-  async function handleSubmit(e?: React.FormEvent) {
-    e?.preventDefault()
-    if (!input.trim() || loading) return
+  async function handleSubmit(userMessage: string) {
+    if (!userMessage.trim() || loading) return
 
-    const userMessage = input.trim()
-    setInput('')
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
     setLoading(true)
     setStreamingContent('')
-
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
 
     try {
       const res = await fetch('/api/chat', {
@@ -121,6 +127,7 @@ export default function HomePage() {
           message: userMessage,
           conversation_id: conversationId,
           project_id: null,
+          active_artifact_id: activeArtifactId,
         }),
       })
 
@@ -130,6 +137,8 @@ export default function HomePage() {
       let sources: any[] = []
       const actionItemEvents: any[] = []
       const addToProjectEvents: any[] = []
+      const artifactEvents: any[] = []
+      const gmailSearchEvents: any[] = []
 
       while (reader) {
         const { done, value } = await reader.read()
@@ -149,8 +158,23 @@ export default function HomePage() {
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
               }
-              if (data.add_to_project) {
-                addToProjectEvents.push(data.add_to_project)
+              if (data.project_context) {
+                addToProjectEvents.push(data.project_context)
+              }
+              if (data.gmail_search) {
+                gmailSearchEvents.push(data.gmail_search)
+              }
+              if (data.artifact) {
+                artifactEvents.push(data.artifact)
+                const art = data.artifact.artifact as Artifact
+                setArtifacts(prev => {
+                  const exists = prev.find(a => a.id === art.id)
+                  if (exists) return prev.map(a => a.id === art.id ? art : a)
+                  return [art, ...prev]
+                })
+                setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
+                setActiveArtifactId(art.id)
+                setShowArtifactPanel(true)
               }
               if (data.done) {
                 if (data.conversation_id && !conversationId) {
@@ -172,6 +196,8 @@ export default function HomePage() {
         sources,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
+        artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
+        gmailSearchEvents: gmailSearchEvents.length > 0 ? gmailSearchEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {
@@ -182,20 +208,6 @@ export default function HomePage() {
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
-  }
-
-  function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setInput(e.target.value)
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
-  }
-
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -204,57 +216,67 @@ export default function HomePage() {
     )
   }
 
+  function handleArtifactClick(artifactId: string) {
+    if (!openArtifactIds.includes(artifactId)) {
+      setOpenArtifactIds(prev => [...prev, artifactId])
+    }
+    setActiveArtifactId(artifactId)
+    setShowArtifactPanel(true)
+  }
+
+  function handleCloseArtifact(artifactId: string) {
+    setOpenArtifactIds(prev => prev.filter(id => id !== artifactId))
+    if (activeArtifactId === artifactId) {
+      const remaining = openArtifactIds.filter(id => id !== artifactId)
+      setActiveArtifactId(remaining.length > 0 ? remaining[0] : null)
+      if (remaining.length === 0) setShowArtifactPanel(false)
+    }
+  }
+
+  function handleArtifactUpdated(updated: Artifact) {
+    setArtifacts(prev => prev.map(a => a.id === updated.id ? updated : a))
+  }
+
+  const openArtifacts = artifacts.filter(a => openArtifactIds.includes(a.id))
+
   return (
-    <div className="flex flex-col h-full">
-      <DigestBanner />
+    <div className="flex h-full">
+      <div className="flex-1 flex flex-col min-w-0">
+        <DigestBanner />
 
-      {/* Messages */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-auto flex flex-col"
-      >
-        {loadingMore && (
-          <div className="flex justify-center py-4">
-            <Loader2 className="size-3 animate-spin text-muted-foreground/40" />
-          </div>
-        )}
+        {/* Messages */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-auto flex flex-col"
+        >
+          {loadingMore && (
+            <div className="flex justify-center py-4">
+              <Loader2 className="size-3 animate-spin text-muted-foreground/40" />
+            </div>
+          )}
 
-        <ChatMessages
-          messages={messages}
-          streamingContent={streamingContent}
-          loading={loading}
-        />
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-border">
-        <div className="max-w-3xl mx-auto px-4 py-3">
-          <div className="relative border border-border input-container">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              placeholder="Message..."
-              rows={1}
-              className="w-full resize-none bg-transparent px-3.5 py-3 pr-12 text-[14px] leading-relaxed outline-none placeholder:text-muted-foreground/40"
-              style={{ minHeight: '46px', maxHeight: '200px' }}
-            />
-            <button
-              onClick={() => handleSubmit()}
-              disabled={loading || !input.trim()}
-              className="absolute bottom-2.5 right-2.5 p-1.5 bg-foreground text-background disabled:opacity-20 transition-opacity"
-            >
-              {loading ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <ArrowUp className="size-3.5" />
-              )}
-            </button>
-          </div>
+          <ChatMessages
+            messages={messages}
+            streamingContent={streamingContent}
+            loading={loading}
+            onArtifactClick={handleArtifactClick}
+          />
         </div>
+
+        <ChatInput onSubmit={handleSubmit} loading={loading} storageKey="main" />
       </div>
+
+      {showArtifactPanel && openArtifacts.length > 0 && (
+        <ArtifactPanel
+          artifacts={openArtifacts}
+          activeArtifactId={activeArtifactId}
+          onSelectArtifact={setActiveArtifactId}
+          onCloseArtifact={handleCloseArtifact}
+          onClosePanel={() => setShowArtifactPanel(false)}
+          onArtifactUpdated={handleArtifactUpdated}
+        />
+      )}
     </div>
   )
 }

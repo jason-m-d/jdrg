@@ -45,6 +45,7 @@ export default function ActionItemsPage() {
   async function updateStatus(id: string, status: string) {
     await getSupabaseBrowser().from('action_items').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
     setItems(prev => prev.filter(i => i.id !== id))
+    window.dispatchEvent(new Event('sidebar-refresh'))
   }
 
   async function bulkAction(status: string) {
@@ -52,6 +53,7 @@ export default function ActionItemsPage() {
     if (ids.length === 0) return
     await getSupabaseBrowser().from('action_items').update({ status, updated_at: new Date().toISOString() }).in('id', ids)
     loadItems()
+    window.dispatchEvent(new Event('sidebar-refresh'))
   }
 
   function startEdit(item: any) {

@@ -30,18 +30,32 @@ export function Sidebar() {
   const { signOut } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
   const [projects, setProjects] = useState<any[]>([])
+  const [actionCount, setActionCount] = useState(0)
 
   useEffect(() => {
-    getSupabaseBrowser()
-      .from('projects')
-      .select('id, name, color')
-      .order('name')
-      .then(({ data }) => setProjects(data || []))
-  }, [pathname])
+    function refresh() {
+      const supabase = getSupabaseBrowser()
+      supabase
+        .from('projects')
+        .select('id, name, color')
+        .order('name')
+        .then(({ data }) => setProjects(data || []))
+
+      supabase
+        .from('action_items')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'approved'])
+        .then(({ count }) => setActionCount(count || 0))
+    }
+
+    refresh()
+    window.addEventListener('sidebar-refresh', refresh)
+    return () => window.removeEventListener('sidebar-refresh', refresh)
+  }, [])
 
   return (
     <div className={cn(
-      "flex flex-col border-r border-border bg-background transition-all duration-200",
+      "flex flex-col border-r border-sidebar-border bg-sidebar transition-all duration-200",
       collapsed ? "w-14" : "w-48"
     )}>
       {/* Logo */}
@@ -76,6 +90,11 @@ export function Sidebar() {
             >
               <item.icon className="size-4 shrink-0" />
               {!collapsed && <span>{item.label}</span>}
+              {!collapsed && item.label === 'Action Items' && actionCount > 0 && (
+                <span className="text-[10px] bg-foreground/10 text-foreground/60 px-1.5 py-0.5 rounded-full tabular-nums">
+                  {actionCount}
+                </span>
+              )}
             </Link>
           )
         })}

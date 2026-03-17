@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import {
   Loader2, FileText, MessageSquare, Pin, PinOff, ArrowUp, Settings2,
@@ -10,6 +10,8 @@ import {
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { ChatMessages } from '@/components/chat-messages'
+import { ArtifactPanel } from '@/components/artifact-panel'
+import type { Artifact } from '@/lib/types'
 
 const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#6B7280', '#06B6D4']
 
@@ -18,8 +20,10 @@ type Panel = 'conversations' | 'files' | 'context' | 'settings'
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const continueHandled = useRef(false)
 
   // Chat state
   const [conversations, setConversations] = useState<any[]>([])
@@ -50,6 +54,13 @@ export default function ProjectPage() {
   const [savingContext, setSavingContext] = useState(false)
   const [addingContext, setAddingContext] = useState(false)
 
+  // Artifact state
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [openArtifactIds, setOpenArtifactIds] = useState<string[]>([])
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null)
+  const [showArtifactPanel, setShowArtifactPanel] = useState(false)
+  const [projectArtifacts, setProjectArtifacts] = useState<Artifact[]>([])
+
   // Edit state
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
@@ -60,19 +71,134 @@ export default function ProjectPage() {
 
   useEffect(() => { loadProject() }, [id])
 
+  // Handle ?continue=contextId param — auto-start a chat continuing from added context
+  useEffect(() => {
+    const continueContextId = searchParams.get('continue')
+    if (!continueContextId || loading || !project || continueHandled.current) return
+    continueHandled.current = true
+
+    // Clean the URL param
+    router.replace(`/projects/${id}`)
+
+    // Look up the context entry to get its title
+    const supabase = getSupabaseBrowser()
+    supabase
+      .from('project_context')
+      .select('title')
+      .eq('id', continueContextId)
+      .single()
+      .then(({ data: ctx }) => {
+        const title = ctx?.title || 'the context I just added'
+        // Start a new chat and auto-send a continuation message
+        setActiveConvId(null)
+        setMessages([])
+        const autoMessage = `Picking up from what I just added — ${title}. Let's continue.`
+        setInput(autoMessage)
+        // Use a short delay so the input state settles, then submit
+        setTimeout(() => {
+          setInput('')
+          setMessages([{ role: 'user', content: autoMessage }])
+          setChatLoading(true)
+          setStreamingContent('')
+
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: autoMessage,
+              conversation_id: null,
+              project_id: id,
+              active_artifact_id: null,
+            }),
+          }).then(async (res) => {
+            const reader = res.body?.getReader()
+            const decoder = new TextDecoder()
+            let fullText = ''
+            let sources: any[] = []
+            const actionItemEvents: any[] = []
+            const addToProjectEvents: any[] = []
+            const artifactEvents: any[] = []
+
+            while (reader) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              const chunk = decoder.decode(value)
+              const lines = chunk.split('\n')
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6))
+                    if (data.text) {
+                      fullText += data.text
+                      setStreamingContent(fullText)
+                    }
+                    if (data.action_item) actionItemEvents.push(data.action_item)
+                    if (data.project_context) addToProjectEvents.push(data.project_context)
+                    if (data.artifact) {
+                      artifactEvents.push(data.artifact)
+                      const art = data.artifact.artifact as Artifact
+                      setArtifacts(prev => {
+                        const exists = prev.find(a => a.id === art.id)
+                        if (exists) return prev.map(a => a.id === art.id ? art : a)
+                        return [art, ...prev]
+                      })
+                      setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
+                      setActiveArtifactId(art.id)
+                      setShowArtifactPanel(true)
+                    }
+                    if (data.done) {
+                      if (data.sources) sources = data.sources
+                      if (data.conversation_id) {
+                        setActiveConvId(data.conversation_id)
+                        const { data: convos } = await getSupabaseBrowser()
+                          .from('conversations')
+                          .select('*')
+                          .eq('project_id', id)
+                          .order('updated_at', { ascending: false })
+                        setConversations(convos || [])
+                      }
+                    }
+                  } catch {}
+                }
+              }
+            }
+
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: fullText,
+              sources,
+              actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
+              addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
+              artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
+            }])
+            setStreamingContent('')
+          }).catch((err) => {
+            console.error(err)
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }])
+          }).finally(() => {
+            setChatLoading(false)
+          })
+        }, 100)
+      })
+  }, [searchParams, loading, project, id, router])
+
   async function loadProject() {
     const supabase = getSupabaseBrowser()
-    const [{ data: proj }, { data: convos }, { data: docs }, { data: ctxEntries }] = await Promise.all([
+    const [{ data: proj }, { data: convos }, { data: docs }, { data: ctxEntries }, { data: projArts }] = await Promise.all([
       supabase.from('projects').select('*').eq('id', id).single(),
       supabase.from('conversations').select('*').eq('project_id', id).order('updated_at', { ascending: false }),
       supabase.from('documents').select('*').eq('project_id', id).order('is_pinned', { ascending: false }).order('updated_at', { ascending: false }),
       supabase.from('project_context').select('*').eq('project_id', id).order('updated_at', { ascending: false }),
+      supabase.from('artifacts').select('*').eq('project_id', id).order('updated_at', { ascending: false }),
     ])
 
     setProject(proj)
     setConversations(convos || [])
     setDocuments(docs || [])
     setContextEntries(ctxEntries || [])
+    setProjectArtifacts(projArts || [])
     setLoading(false)
 
     if (proj) {
@@ -87,12 +213,20 @@ export default function ProjectPage() {
     setActiveConvId(convId)
     setMessages([])
     setMessagesLoading(true)
-    const { data } = await getSupabaseBrowser()
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', convId)
-      .order('created_at')
+    const [{ data }, { data: arts }] = await Promise.all([
+      getSupabaseBrowser()
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', convId)
+        .order('created_at'),
+      getSupabaseBrowser()
+        .from('artifacts')
+        .select('*')
+        .eq('conversation_id', convId)
+        .order('updated_at', { ascending: false }),
+    ])
     setMessages(data || [])
+    setArtifacts(arts || [])
     setMessagesLoading(false)
   }
 
@@ -121,6 +255,7 @@ export default function ProjectPage() {
           message: userMessage,
           conversation_id: activeConvId,
           project_id: id,
+          active_artifact_id: activeArtifactId,
         }),
       })
 
@@ -130,6 +265,7 @@ export default function ProjectPage() {
       let sources: any[] = []
       const actionItemEvents: any[] = []
       const addToProjectEvents: any[] = []
+      const artifactEvents: any[] = []
 
       while (reader) {
         const { done, value } = await reader.read()
@@ -149,8 +285,20 @@ export default function ProjectPage() {
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
               }
-              if (data.add_to_project) {
-                addToProjectEvents.push(data.add_to_project)
+              if (data.project_context) {
+                addToProjectEvents.push(data.project_context)
+              }
+              if (data.artifact) {
+                artifactEvents.push(data.artifact)
+                const art = data.artifact.artifact as Artifact
+                setArtifacts(prev => {
+                  const exists = prev.find(a => a.id === art.id)
+                  if (exists) return prev.map(a => a.id === art.id ? art : a)
+                  return [art, ...prev]
+                })
+                setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
+                setActiveArtifactId(art.id)
+                setShowArtifactPanel(true)
               }
               if (data.done) {
                 if (data.sources) sources = data.sources
@@ -180,6 +328,7 @@ export default function ProjectPage() {
         sources,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
+        artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {
@@ -275,6 +424,37 @@ export default function ProjectPage() {
       .order('is_pinned', { ascending: false }).order('updated_at', { ascending: false })
     setDocuments(docs || [])
   }
+
+  function handleArtifactClick(artifactId: string) {
+    if (!openArtifactIds.includes(artifactId)) {
+      setOpenArtifactIds(prev => [...prev, artifactId])
+    }
+    setActiveArtifactId(artifactId)
+    setShowArtifactPanel(true)
+  }
+
+  function handleCloseArtifact(artifactId: string) {
+    setOpenArtifactIds(prev => prev.filter(aid => aid !== artifactId))
+    if (activeArtifactId === artifactId) {
+      const remaining = openArtifactIds.filter(aid => aid !== artifactId)
+      setActiveArtifactId(remaining.length > 0 ? remaining[0] : null)
+      if (remaining.length === 0) setShowArtifactPanel(false)
+    }
+  }
+
+  function handleArtifactUpdated(updated: Artifact) {
+    setArtifacts(prev => prev.map(a => a.id === updated.id ? updated : a))
+    // Also update projectArtifacts if this artifact belongs to this project
+    if (updated.project_id === id) {
+      setProjectArtifacts(prev => {
+        const exists = prev.find(a => a.id === updated.id)
+        if (exists) return prev.map(a => a.id === updated.id ? updated : a)
+        return [updated, ...prev]
+      })
+    }
+  }
+
+  const openArtifacts = artifacts.filter(a => openArtifactIds.includes(a.id))
 
   if (loading) {
     return (
@@ -546,6 +726,27 @@ export default function ProjectPage() {
                     ))}
                   </div>
                 )}
+                {/* Project artifacts */}
+                {projectArtifacts.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 border-b border-border">
+                      <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium">Artifacts</span>
+                    </div>
+                    {projectArtifacts.map(art => (
+                      <button
+                        key={art.id}
+                        onClick={() => handleArtifactClick(art.id)}
+                        className="w-full text-left px-3 py-2.5 hover:bg-muted/30 transition-colors border-b border-border"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-medium truncate flex-1">{art.name}</span>
+                          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40">{art.type}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/40 mt-0.5 line-clamp-1 leading-relaxed">{art.content.slice(0, 80)}</p>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
 
@@ -664,6 +865,23 @@ export default function ProjectPage() {
               <span className="text-[12px] text-muted-foreground/50 truncate">
                 {conversations.find(c => c.id === activeConvId)?.title || 'Untitled'}
               </span>
+              <div className="ml-auto">
+                <button
+                  onClick={async () => {
+                    if (!confirm('Delete this conversation?')) return
+                    const supabase = getSupabaseBrowser()
+                    await supabase.from('messages').delete().eq('conversation_id', activeConvId)
+                    await supabase.from('conversations').delete().eq('id', activeConvId)
+                    setConversations(prev => prev.filter(c => c.id !== activeConvId))
+                    setActiveConvId(null)
+                    setMessages([])
+                  }}
+                  className="p-1 text-muted-foreground/30 hover:text-red-500 transition-colors"
+                  title="Delete conversation"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -679,6 +897,7 @@ export default function ProjectPage() {
               messages={messages}
               streamingContent={streamingContent}
               loading={chatLoading}
+              onArtifactClick={handleArtifactClick}
             />
           )}
         </div>
@@ -712,6 +931,19 @@ export default function ProjectPage() {
           </div>
         </div>
       </div>
+
+      {/* Artifact panel (right side) */}
+      {showArtifactPanel && openArtifacts.length > 0 && (
+        <ArtifactPanel
+          artifacts={openArtifacts}
+          activeArtifactId={activeArtifactId}
+          onSelectArtifact={setActiveArtifactId}
+          onCloseArtifact={handleCloseArtifact}
+          onClosePanel={() => setShowArtifactPanel(false)}
+          onArtifactUpdated={handleArtifactUpdated}
+          projectId={id}
+        />
+      )}
 
       {/* Add existing doc dialog */}
       {showAddDoc && (

@@ -129,9 +129,38 @@ export interface ContextChunk {
   created_at: string
 }
 
+export interface Artifact {
+  id: string
+  name: string
+  content: string
+  type: 'plan' | 'spec' | 'checklist' | 'freeform'
+  conversation_id: string | null
+  project_id: string | null
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ArtifactVersion {
+  id: string
+  artifact_id: string
+  content: string
+  version: number
+  change_summary: string | null
+  changed_by: 'user' | 'assistant'
+  created_at: string
+}
+
+export interface ArtifactEvent {
+  operation: 'create' | 'update'
+  artifact: Artifact
+}
+
 export interface AddToProjectEvent {
   status: string
   project_name?: string
+  project_id?: string
+  context_id?: string
   conversation_url?: string
   message?: string
 }

@@ -1,5 +1,51 @@
 import { supabaseAdmin } from '@/lib/supabase'
 
+export async function searchEmails(query: string, maxResults: number = 10) {
+  // Get first connected Gmail account
+  const { data: tokenRow } = await supabaseAdmin
+    .from('gmail_tokens')
+    .select('account')
+    .limit(1)
+    .single()
+
+  if (!tokenRow) throw new Error('No Gmail account connected')
+
+  const accessToken = await refreshAccessToken(tokenRow.account)
+
+  // Search messages
+  const listRes = await fetch(
+    `https://www.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const listData = await listRes.json()
+
+  if (!listData.messages) return []
+
+  const emails = []
+  for (const msg of listData.messages) {
+    const msgRes = await fetch(
+      `https://www.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    const msgData = await msgRes.json()
+
+    const headers = msgData.payload?.headers || []
+    const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
+    const from = headers.find((h: any) => h.name === 'From')?.value || ''
+    const date = headers.find((h: any) => h.name === 'Date')?.value || ''
+    const body = getEmailBody(msgData.payload)
+
+    emails.push({
+      subject,
+      from,
+      date,
+      snippet: body.slice(0, 1500),
+    })
+  }
+
+  return emails
+}
+
 export async function refreshAccessToken(account: string): Promise<string> {
   const { data: token } = await supabaseAdmin
     .from('gmail_tokens')

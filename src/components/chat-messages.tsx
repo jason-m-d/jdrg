@@ -2,13 +2,17 @@
 
 import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Check, ChevronDown, FileText, FolderOpen, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { Check, ChevronDown, Copy, FileText, FolderOpen, Mail, NotebookPen, Pencil, PencilLine, Plus, RefreshCw, Send, X } from 'lucide-react'
 import Link from 'next/link'
+import { getSupabaseBrowser } from '@/lib/supabase-browser'
 
 interface ChatMessagesProps {
   messages: any[]
   streamingContent: string
   loading: boolean
+  onArtifactClick?: (artifactId: string) => void
+  onCopyMessage?: (content: string) => void
+  onEditMessage?: (messageIndex: number, content: string) => void
 }
 
 function formatDate() {
@@ -22,7 +26,7 @@ function formatTime(dateStr?: string) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-export function ChatMessages({ messages, streamingContent, loading }: ChatMessagesProps) {
+export function ChatMessages({ messages, streamingContent, loading, onArtifactClick, onCopyMessage, onEditMessage }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -50,7 +54,14 @@ export function ChatMessages({ messages, streamingContent, loading }: ChatMessag
     <div className="px-4 pt-6 pb-2">
       <div className="max-w-3xl mx-auto">
         {messages.map((msg, i) => (
-          <MessageBlock key={msg.id || i} message={msg} isLatest={i === messages.length - 1 && !streamingContent} />
+          <MessageBlock
+            key={msg.id || i}
+            message={msg}
+            isLatest={i === messages.length - 1 && !streamingContent}
+            onArtifactClick={onArtifactClick}
+            onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
+            onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
+          />
         ))}
         {streamingContent && (
           <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest />
@@ -73,18 +84,84 @@ export function ChatMessages({ messages, streamingContent, loading }: ChatMessag
   )
 }
 
-function MessageBlock({ message, isLatest }: { message: any; isLatest?: boolean }) {
+function isProactiveMessage(content: string) {
+  return content.startsWith('☀️ **Morning Briefing') || content.startsWith('⚡ **Alert')
+}
+
+function ProactiveFeedback({ messageContent }: { messageContent: string }) {
+  const [showInput, setShowInput] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [sent, setSent] = useState(false)
+
+  async function handleSubmit() {
+    if (!feedback.trim()) return
+    const prefix = messageContent.startsWith('☀️') ? 'Briefing feedback' : 'Alert feedback'
+    await getSupabaseBrowser().from('memories').insert({
+      content: `${prefix}: ${feedback.trim()}`,
+      category: 'preference',
+    })
+    setSent(true)
+    setShowInput(false)
+    setFeedback('')
+  }
+
+  if (sent) {
+    return <span className="text-[11px] text-muted-foreground/40">Preference saved</span>
+  }
+
+  if (showInput) {
+    return (
+      <div className="flex items-center gap-2 mt-2">
+        <input
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          placeholder="What should change?"
+          className="flex-1 bg-transparent border border-border px-2.5 py-1 text-[12px] outline-none placeholder:text-muted-foreground/30 focus:border-foreground/30 transition-colors"
+          autoFocus
+        />
+        <button onClick={handleSubmit} className="p-1 text-muted-foreground hover:text-foreground transition-colors">
+          <Send className="size-3" />
+        </button>
+        <button onClick={() => setShowInput(false)} className="p-1 text-muted-foreground/40 hover:text-foreground transition-colors">
+          <X className="size-3" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setShowInput(true)}
+      className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors mt-2"
+    >
+      Adjust this
+    </button>
+  )
+}
+
+function MessageBlock({ message, isLatest, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
+  const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const isUser = message.role === 'user'
   const time = formatTime(message.created_at)
+  const isProactive = !isUser && isProactiveMessage(message.content || '')
+  const isBriefing = !isUser && (message.content || '').startsWith('☀️ **Morning Briefing')
+  const isAlert = !isUser && (message.content || '').startsWith('⚡ **Alert')
 
   return (
-    <div className={cn("py-5", isLatest && "animate-in-up")}>
+    <div className={cn("py-5 group", isLatest && "animate-in-up", isUser && "flex flex-col items-end")}>
       {/* Role + timestamp */}
-      <div className="flex items-baseline gap-2 mb-1.5">
+      <div className={cn("flex items-baseline gap-2 mb-1.5", isUser && "flex-row-reverse")}>
         <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium">
           {isUser ? 'You' : 'J.DRG'}
         </span>
+        {isBriefing && (
+          <span className="text-[10px] uppercase tracking-wider text-amber-500/60">Briefing</span>
+        )}
+        {isAlert && (
+          <span className="text-[10px] uppercase tracking-wider text-red-500/60">Alert</span>
+        )}
         {time && (
           <span className="text-[10px] text-muted-foreground/30 tabular-nums">{time}</span>
         )}
@@ -92,11 +169,44 @@ function MessageBlock({ message, isLatest }: { message: any; isLatest?: boolean 
 
       {/* Content */}
       <div className={cn(
-        "text-[14px] leading-[1.7]",
-        isUser ? "text-foreground" : "text-foreground/85"
+        "text-[15px] leading-[1.7]",
+        isUser ? "text-foreground bg-muted/50 px-4 py-2.5 rounded-2xl rounded-tr-sm max-w-[85%]" : "text-foreground/85 tracking-[0.01em] font-light",
+        isBriefing && "border-l-2 border-amber-500/30 pl-4",
+        isAlert && "border-l-2 border-red-500/30 pl-4",
       )}>
         <FormattedContent content={message.content} />
       </div>
+
+      {/* User message actions */}
+      {isUser && (onCopy || onEdit) && (
+        <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onCopy && (
+            <button
+              onClick={() => {
+                onCopy()
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              }}
+              className="p-1 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              title="Copy message"
+            >
+              {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+            </button>
+          )}
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="p-1 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              title="Edit & resend"
+            >
+              <PencilLine className="size-3" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Proactive feedback */}
+      {isProactive && <ProactiveFeedback messageContent={message.content} />}
 
       {/* Action Items */}
       {message.actionItemEvents && message.actionItemEvents.length > 0 && (
@@ -112,6 +222,24 @@ function MessageBlock({ message, isLatest }: { message: any; isLatest?: boolean 
         <div className="mt-3 space-y-1.5">
           {message.addToProjectEvents.map((evt: any, i: number) => (
             <AddToProjectCard key={i} event={evt} />
+          ))}
+        </div>
+      )}
+
+      {/* Gmail Search */}
+      {message.gmailSearchEvents && message.gmailSearchEvents.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {message.gmailSearchEvents.map((evt: any, i: number) => (
+            <GmailSearchCard key={i} event={evt} />
+          ))}
+        </div>
+      )}
+
+      {/* Artifacts */}
+      {message.artifactEvents && message.artifactEvents.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {message.artifactEvents.map((evt: any, i: number) => (
+            <ArtifactCard key={i} event={evt} onClick={onArtifactClick} />
           ))}
         </div>
       )}
@@ -148,7 +276,7 @@ function MessageBlock({ message, isLatest }: { message: any; isLatest?: boolean 
   )
 }
 
-function FormattedContent({ content }: { content: string }) {
+export function FormattedContent({ content }: { content: string }) {
   const lines = content.split('\n')
   const elements: JSX.Element[] = []
   let inCodeBlock = false
@@ -269,14 +397,70 @@ function AddToProjectCard({ event }: { event: any }) {
     )
   }
 
+  const label = event.status === 'updated' ? 'Updated context on' : event.status === 'archived' ? 'Archived context from' : 'Added context to'
+  const isClickable = event.project_id && event.context_id && event.status !== 'archived'
+
+  const content = (
+    <>
+      <FolderOpen className="size-3 shrink-0 text-blue-500" />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground/80 font-medium">
+        {event.project_name}
+      </span>
+    </>
+  )
+
+  if (isClickable) {
+    return (
+      <Link
+        href={`/projects/${event.project_id}?continue=${event.context_id}`}
+        className="flex items-center gap-2 text-[12px] border border-border px-3 py-2 hover:bg-muted/30 transition-colors"
+      >
+        {content}
+      </Link>
+    )
+  }
+
   return (
     <div className="flex items-center gap-2 text-[12px] border border-border px-3 py-2">
-      <FolderOpen className="size-3 shrink-0 text-blue-500" />
-      <span className="text-muted-foreground">Added to</span>
-      <Link href={event.conversation_url || '#'} className="text-foreground/80 font-medium hover:underline">
-        {event.project_name}
-      </Link>
+      {content}
     </div>
+  )
+}
+
+function GmailSearchCard({ event }: { event: any }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px] border border-border px-3 py-2">
+      <Mail className="size-3 shrink-0 text-red-400" />
+      <span className="text-muted-foreground">Searched Gmail:</span>
+      <span className="text-foreground/80 truncate">{event.query}</span>
+      <span className="text-[10px] text-muted-foreground/50 ml-auto shrink-0">
+        {event.result_count} result{event.result_count !== 1 ? 's' : ''}
+      </span>
+    </div>
+  )
+}
+
+function ArtifactCard({ event, onClick }: { event: any; onClick?: (artifactId: string) => void }) {
+  const isCreate = event.operation === 'create'
+  const artifact = event.artifact
+
+  return (
+    <button
+      onClick={() => onClick?.(artifact?.id)}
+      className="flex items-center gap-2 text-[12px] border border-border px-3 py-2 hover:bg-muted/30 transition-colors w-full text-left"
+    >
+      {isCreate ? (
+        <NotebookPen className="size-3 shrink-0 text-violet-500" />
+      ) : (
+        <Pencil className="size-3 shrink-0 text-amber-500" />
+      )}
+      <span className="text-muted-foreground">{isCreate ? 'Created' : 'Updated'}:</span>
+      <span className="text-foreground/80 truncate">{artifact?.name || 'Untitled'}</span>
+      {artifact?.type && artifact.type !== 'freeform' && (
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50 ml-auto shrink-0">{artifact.type}</span>
+      )}
+    </button>
   )
 }
 
