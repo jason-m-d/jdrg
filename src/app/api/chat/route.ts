@@ -9,6 +9,7 @@ import { searchEmails, createDraft } from '@/lib/gmail'
 import { buildFewShotBlock, storeTrainingExample, getTrainingStats } from '@/lib/training'
 import { fetchEmails } from '@/lib/gmail'
 import type { ActionItem, Artifact, DashboardCard, NotificationRule, Bookmark, UIPreference } from '@/lib/types'
+import { sendPushToAll } from '@/lib/push'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -720,6 +721,10 @@ async function executeActionItemTool(
         storeTrainingExample(input.description, true, 'implicit', 'chat', undefined, data.id)
           .catch(e => console.error('Implicit training (create) failed:', e))
       }
+
+      // Push notification for new action items
+      sendPushToAll('New Action Item', input.title, '/dashboard')
+        .catch(e => console.error('Push notification failed:', e))
 
       return { status: 'created', item: data }
     }

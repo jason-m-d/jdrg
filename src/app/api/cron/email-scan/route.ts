@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { fetchEmails } from '@/lib/gmail'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 import { buildFewShotBlock } from '@/lib/training'
+import { sendPushToAll } from '@/lib/push'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -28,12 +29,15 @@ DO NOT extract items from:
 EXISTING ACTION ITEMS (do not create duplicates - if an email relates to an existing item, use "updates" to modify it instead):
 {EXISTING_ITEMS}
 
+ACTIVE PROJECTS (if an action item clearly relates to a project, include the project name in "related_project"):
+{PROJECTS}
+
 For each action item, include a "confidence" score (0.0-1.0).
 1.0 = certain this is an action item. 0.7-0.9 = likely. 0.5-0.7 = uncertain. Below 0.5 = probably not, don't include.
 
 Return JSON:
 {
-  "action_items": [{"title": "...", "description": "...", "priority": "high|medium|low", "due_date": null, "source_snippet": "...", "confidence": 0.9}],
+  "action_items": [{"title": "...", "description": "...", "priority": "high|medium|low", "due_date": null, "source_snippet": "...", "confidence": 0.9, "related_project": "Project Name or null"}],
   "updates": [{"item_id": "uuid", "description": "updated description", "priority": "high|medium|low", "due_date": "2026-01-20"}]
 }
 
@@ -55,19 +59,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'No accounts connected', emails_processed: 0, action_items_found: 0 })
   }
 
-  // Load existing action items for dedup
-  const { data: existingItems } = await supabaseAdmin
-    .from('action_items')
-    .select('id, title, description, status, priority, due_date')
-    .in('status', ['pending', 'approved'])
-    .order('created_at', { ascending: false })
-    .limit(30)
+  // Load existing action items for dedup + projects for association
+  const [{ data: existingItems }, { data: projects }] = await Promise.all([
+    supabaseAdmin
+      .from('action_items')
+      .select('id, title, description, status, priority, due_date')
+      .in('status', ['pending', 'approved'])
+      .order('created_at', { ascending: false })
+      .limit(30),
+    supabaseAdmin
+      .from('projects')
+      .select('id, name, description')
+      .order('name'),
+  ])
 
   const existingItemsList = (existingItems || [])
     .map((item: any) => `- [${item.id}] "${item.title}" (${item.status}, ${item.priority})${item.due_date ? ` due: ${item.due_date}` : ''}`)
     .join('\n') || '(none)'
 
-  const systemPrompt = EMAIL_EXTRACTION_PROMPT.replace('{EXISTING_ITEMS}', existingItemsList)
+  const projectsList = (projects || [])
+    .map((p: any) => `- "${p.name}"${p.description ? `: ${p.description}` : ''}`)
+    .join('\n') || '(none)'
+
+  const systemPrompt = EMAIL_EXTRACTION_PROMPT
+    .replace('{EXISTING_ITEMS}', existingItemsList)
+    .replace('{PROJECTS}', projectsList)
 
   for (const { account } of accounts) {
     try {
@@ -130,9 +146,13 @@ export async function POST(req: NextRequest) {
               WINGSTOP_STORES.some(s => email.body.includes(s) || email.subject.includes(s))
 
             for (const item of parsed.action_items) {
+              // If the AI identified a related project, note it in the description
+              const projectNote = item.related_project
+                ? `\n\n[Related project: ${item.related_project}]`
+                : ''
               await supabaseAdmin.from('action_items').insert({
                 title: item.title,
-                description: item.description,
+                description: (item.description || '') + projectNote,
                 source: 'email',
                 source_id: email.id,
                 source_snippet: item.source_snippet || email.subject,
@@ -264,6 +284,9 @@ async function maybeGenerateAlert(newActionItemCount: number) {
   if (!alertText) return
 
   await insertProactiveMessage(convId, `⚡ **Alert**\n\n${alertText}`)
+
+  // Push notification
+  await sendPushToAll('Alert', alertText.slice(0, 200), `/chat/${convId}`)
 }
 
 // Also support GET for Vercel Cron

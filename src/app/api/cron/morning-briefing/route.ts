@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { buildBriefingPrompt } from '@/lib/system-prompt'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
+import { sendPushToAll } from '@/lib/push'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -34,10 +35,21 @@ export async function POST(req: NextRequest) {
       .order('priority')
       .order('created_at', { ascending: false })
 
-    // Gather email scan stats
+    // Gather email scan stats + dashboard cards + notification rules
     const { data: emailScans } = await supabaseAdmin
       .from('email_scans')
       .select('account, emails_processed, action_items_found, last_scanned_at')
+
+    const { data: dashboardCards } = await supabaseAdmin
+      .from('dashboard_cards')
+      .select('title, content, card_type')
+      .eq('is_active', true)
+      .order('position')
+
+    const { data: notificationRules } = await supabaseAdmin
+      .from('notification_rules')
+      .select('description, match_type, match_value, is_active')
+      .eq('is_active', true)
 
     // Build prompt
     const systemPrompt = buildBriefingPrompt({
@@ -61,11 +73,24 @@ export async function POST(req: NextRequest) {
       })),
     }, preferences)
 
+    // Append dashboard cards and notification rules context
+    let fullPrompt = systemPrompt
+
+    if (dashboardCards && dashboardCards.length > 0) {
+      const cardLines = dashboardCards.map((c: any) => `- "${c.title}" (${c.card_type}): ${c.content.slice(0, 100)}`)
+      fullPrompt += `\n\nActive Dashboard Cards (mention if any are stale or worth updating):\n${cardLines.join('\n')}`
+    }
+
+    if (notificationRules && notificationRules.length > 0) {
+      const ruleLines = notificationRules.map((r: any) => `- ${r.description} (${r.match_type}: "${r.match_value}")`)
+      fullPrompt += `\n\nActive Notification Rules (mention only if relevant to today's items):\n${ruleLines.join('\n')}`
+    }
+
     // Generate briefing via Claude
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system: systemPrompt,
+      system: fullPrompt,
       messages: [{ role: 'user', content: 'Generate the morning briefing.' }],
     })
 
@@ -79,6 +104,9 @@ export async function POST(req: NextRequest) {
     // Insert into main conversation
     const convId = await getMainConversation()
     await insertProactiveMessage(convId, fullMessage)
+
+    // Push notification
+    await sendPushToAll('Morning Briefing', `Your ${dateStr} briefing is ready.`, `/chat/${convId}`)
 
     return NextResponse.json({ status: 'ok', conversation_id: convId })
   } catch (error) {
