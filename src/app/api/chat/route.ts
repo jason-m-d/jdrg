@@ -2504,8 +2504,8 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
       .update({ ended_at: now.toISOString() })
       .eq('id', openSession.id)
 
-    // Fire-and-forget summarization
-    summarizeSession(openSession.id, convId).catch(e => console.error('Session summarization failed:', e))
+    // Note: session summarization intentionally skipped here - it was blocking the chat
+    // request for 60+ seconds. TODO: move to nudge cron or a dedicated internal endpoint.
   }
 
   // Fetch last closed session summary
