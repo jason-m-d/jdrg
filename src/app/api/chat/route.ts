@@ -2476,82 +2476,96 @@ async function executeTrainingTool(
 }
 
 async function getOrCreateSession(convId: string): Promise<{ sessionId: string; previousSummary: string | null }> {
-  // Look for open session
-  console.log('[Session] query 1: looking for open session')
-  const { data: openSession } = await supabaseAdmin
-    .from('sessions')
-    .select('*')
-    .eq('conversation_id', convId)
-    .is('ended_at', null)
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .single()
-  console.log('[Session] query 1 done, found:', !!openSession)
+  const FALLBACK_ID = crypto.randomUUID()
 
-  const now = new Date()
-
-  if (openSession) {
-    // Check if we should close this session: 30+ messages OR last message > 2 hours ago
-    console.log('[Session] query 2: getting last message')
-    const { data: lastMsg } = await supabaseAdmin
-      .from('messages')
-      .select('created_at')
-      .eq('session_id', openSession.id)
-      .order('created_at', { ascending: false })
+  // Wrap entire session logic in a 5s timeout — if Supabase is slow/hung, chat still works.
+  const sessionPromise = (async () => {
+    // Look for open session
+    console.log('[Session] query 1: looking for open session')
+    const { data: openSession } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('conversation_id', convId)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
       .limit(1)
       .single()
-    console.log('[Session] query 2 done')
+    console.log('[Session] query 1 done, found:', !!openSession)
 
-    const lastMsgAge = lastMsg
-      ? (now.getTime() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60)
-      : 0
+    const now = new Date()
 
-    const shouldClose = openSession.message_count >= 30 || lastMsgAge > 2
-
-    if (!shouldClose) {
-      // Fetch previous closed session summary for injection
-      console.log('[Session] query 3: getting prev session summary')
-      const { data: prevSession } = await supabaseAdmin
-        .from('sessions')
-        .select('summary')
-        .eq('conversation_id', convId)
-        .not('ended_at', 'is', null)
-        .order('ended_at', { ascending: false })
+    if (openSession) {
+      // Check if we should close this session: 30+ messages OR last message > 2 hours ago
+      console.log('[Session] query 2: getting last message')
+      const { data: lastMsg } = await supabaseAdmin
+        .from('messages')
+        .select('created_at')
+        .eq('session_id', openSession.id)
+        .order('created_at', { ascending: false })
         .limit(1)
         .single()
-      console.log('[Session] query 3 done, returning')
+      console.log('[Session] query 2 done')
 
-      return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
+      const lastMsgAge = lastMsg
+        ? (now.getTime() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60)
+        : 0
+
+      const shouldClose = openSession.message_count >= 30 || lastMsgAge > 2
+
+      if (!shouldClose) {
+        // Fetch previous closed session summary for injection
+        console.log('[Session] query 3: getting prev session summary')
+        const { data: prevSession } = await supabaseAdmin
+          .from('sessions')
+          .select('summary')
+          .eq('conversation_id', convId)
+          .not('ended_at', 'is', null)
+          .order('ended_at', { ascending: false })
+          .limit(1)
+          .single()
+        console.log('[Session] query 3 done, returning')
+
+        return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
+      }
+
+      // Close the open session
+      await supabaseAdmin
+        .from('sessions')
+        .update({ ended_at: now.toISOString() })
+        .eq('id', openSession.id)
+
+      // Note: session summarization intentionally skipped here - it was blocking the chat
+      // request for 60+ seconds. TODO: move to nudge cron or a dedicated internal endpoint.
     }
 
-    // Close the open session
-    await supabaseAdmin
+    // Fetch last closed session summary
+    const { data: lastClosed } = await supabaseAdmin
       .from('sessions')
-      .update({ ended_at: now.toISOString() })
-      .eq('id', openSession.id)
+      .select('summary')
+      .eq('conversation_id', convId)
+      .not('ended_at', 'is', null)
+      .order('ended_at', { ascending: false })
+      .limit(1)
+      .single()
 
-    // Note: session summarization intentionally skipped here - it was blocking the chat
-    // request for 60+ seconds. TODO: move to nudge cron or a dedicated internal endpoint.
-  }
+    // Create new session
+    const { data: newSession } = await supabaseAdmin
+      .from('sessions')
+      .insert({ conversation_id: convId })
+      .select()
+      .single()
 
-  // Fetch last closed session summary
-  const { data: lastClosed } = await supabaseAdmin
-    .from('sessions')
-    .select('summary')
-    .eq('conversation_id', convId)
-    .not('ended_at', 'is', null)
-    .order('ended_at', { ascending: false })
-    .limit(1)
-    .single()
+    return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
+  })()
 
-  // Create new session
-  const { data: newSession } = await supabaseAdmin
-    .from('sessions')
-    .insert({ conversation_id: convId })
-    .select()
-    .single()
+  const timeout = new Promise<{ sessionId: string; previousSummary: string | null }>((resolve) =>
+    setTimeout(() => {
+      console.warn('[Session] timed out after 5s, using fallback session ID')
+      resolve({ sessionId: FALLBACK_ID, previousSummary: null })
+    }, 5000)
+  )
 
-  return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
+  return Promise.race([sessionPromise, timeout])
 }
 
 async function summarizeSession(sessionId: string, convId: string) {
