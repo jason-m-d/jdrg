@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2, Trash2, FileText } from 'lucide-react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { ChatMessages } from '@/components/chat-messages'
 import { ChatInput, type ChatInputHandle } from '@/components/chat-input'
@@ -212,7 +212,25 @@ export default function ConversationPage() {
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            {artifacts.length > 0 && (
+              <button
+                onClick={() => {
+                  if (showArtifactPanel) {
+                    setShowArtifactPanel(false)
+                  } else {
+                    setOpenArtifactIds(artifacts.map(a => a.id))
+                    setActiveArtifactId(activeArtifactId || artifacts[0].id)
+                    setShowArtifactPanel(true)
+                  }
+                }}
+                className={`relative p-1 transition-colors ${showArtifactPanel ? 'text-foreground/70' : 'text-muted-foreground/30 hover:text-foreground/50'}`}
+                title="Artifacts"
+              >
+                <FileText className="size-3.5" />
+                <span className="absolute -top-1 -right-1.5 text-[0.5625rem] font-medium text-muted-foreground/50">{artifacts.length}</span>
+              </button>
+            )}
             <button
               onClick={async () => {
                 if (!confirm('Delete this conversation?')) return

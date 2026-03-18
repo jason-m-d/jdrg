@@ -12,6 +12,7 @@ import type { ActionItem, Artifact, DashboardCard, NotificationRule, Bookmark, U
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob } from '@/lib/background-jobs'
 import { getMainConversation } from '@/lib/proactive'
+import { openrouterClient } from '@/lib/openrouter'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
@@ -2099,18 +2100,11 @@ async function extractMemories(conversationId: string, userMessage: string, assi
       additionalProperties: false,
     }
 
-    const response = await anthropic.messages.create({
+    const response = await openrouterClient.chat.completions.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      ...({
-        extra_body: {
-          models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
-          provider: { sort: 'price' },
-          plugins: [{ id: 'response-healing' }],
-          response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: memorySchema } },
-        },
-      } as any),
-      system: `You manage a memory system for Jason DeMayo (also goes by "Jerry"). Extract genuinely NEW information from this conversation turn.
+      messages: [
+        { role: 'system', content: `You manage a memory system for Jason DeMayo (also goes by "Jerry"). Extract genuinely NEW information from this conversation turn.
 
 Rules:
 - Each memory: ONE concise sentence, max two. No paragraphs.
@@ -2134,13 +2128,18 @@ EXISTING MEMORIES:
 ${existingList || '(none)'}
 
 Return raw JSON only:
-{"create": [{"content": "...", "category": "fact|preference|context"}], "update": [{"id": "uuid", "content": "updated text", "category": "fact|preference|context"}]}`,
-      messages: [
+{"create": [{"content": "...", "category": "fact|preference|context"}], "update": [{"id": "uuid", "content": "updated text", "category": "fact|preference|context"}]}` },
         { role: 'user', content: `User said: ${userMessage}\n\nAssistant replied: ${assistantResponse}` },
       ],
-    })
+      ...({
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: memorySchema } },
+      } as any),
+    } as any)
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const text = response.choices[0]?.message?.content || ''
     console.log('Memory extraction raw:', text.slice(0, 200))
     let parsed: any
     try {

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getUserPreferences } from '@/lib/proactive'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+import { openrouterClient } from '@/lib/openrouter'
 
 type SessionType = 'morning' | 'midday' | 'afternoon' | 'evening' | 'weekend' | 'continuation'
 
@@ -420,18 +418,15 @@ FORMATTING (critical):
 
     prompt += `\nRespond with ONLY the greeting text. No markdown headers. No "Good morning, Jason!" - just talk naturally.`
 
-    // Call Claude Sonnet
-    const response = await anthropic.messages.create({
+    // Call Gemini via openrouterClient
+    const response = await openrouterClient.chat.completions.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 500,
       messages: [{ role: 'user', content: prompt }],
-      ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
-    })
+      ...({ models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } as any),
+    } as any)
 
-    const greetingText = response.content
-      .filter((block): block is Anthropic.Messages.TextBlock => block.type === 'text')
-      .map(block => block.text)
-      .join('')
+    const greetingText = response.choices[0]?.message?.content || ''
 
     // Update last_surfaced_at on surfaced items
     if (surfacedItems.length > 0) {

@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getMainConversation, insertProactiveMessage } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+import { openrouterClient } from '@/lib/openrouter'
 
 export const maxDuration = 30
 
@@ -161,17 +159,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Generate nudge message via AI — pick top 3-5
-  const response = await anthropic.messages.create({
+  const response = await openrouterClient.chat.completions.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 400,
-    system: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Keep it under 200 words. Start with a brief one-liner, then bullet points. Don't be annoying or preachy — just surface what matters.
+    messages: [
+      { role: 'system', content: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Keep it under 200 words. Start with a brief one-liner, then bullet points. Don't be annoying or preachy — just surface what matters.\n\nToday is ${now.toISOString().split('T')[0]}.` },
+      { role: 'user', content: `Items needing attention:\n${candidates.join('\n')}` },
+    ],
+    ...({ models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } as any),
+  } as any)
 
-Today is ${now.toISOString().split('T')[0]}.`,
-    messages: [{ role: 'user', content: `Items needing attention:\n${candidates.join('\n')}` }],
-    ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
-  })
-
-  const nudgeText = response.content[0].type === 'text' ? response.content[0].text : ''
+  const nudgeText = response.choices[0]?.message?.content || ''
   if (!nudgeText) {
     return NextResponse.json({ message: 'AI returned empty nudge', nudged: false })
   }
@@ -308,10 +306,11 @@ async function analyzeDismissalPatterns(convId: string) {
     additionalProperties: false,
   }
 
-  const response = await anthropic.messages.create({
+  const response = await openrouterClient.chat.completions.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 400,
-    system: `Analyze these dismissed action items and identify 0-3 patterns. A pattern is a category or type of item that Jason consistently dismisses. Only suggest rules if there's a clear pattern (3+ similar dismissals).
+    messages: [
+      { role: 'system', content: `Analyze these dismissed action items and identify 0-3 patterns. A pattern is a category or type of item that Jason consistently dismisses. Only suggest rules if there's a clear pattern (3+ similar dismissals).
 
 Each rule should be specific enough to apply automatically. Examples:
 - "Never flag automated system notifications from Wingstop's NBO portal"
@@ -319,24 +318,23 @@ Each rule should be specific enough to apply automatically. Examples:
 - "Skip newsletter-style emails from franchise associations"
 
 Return JSON: {"rules": [{"rule": "...", "reason": "based on N dismissed items about X"}]}
-Return {"rules": []} if no clear patterns found.`,
-    messages: [{ role: 'user', content: JSON.stringify(dismissed.map(d => ({
-      title: d.title,
-      source: d.source,
-      snippet: d.source_snippet?.slice(0, 200),
-      reason: d.dismissal_reason,
-    }))) }],
+Return {"rules": []} if no clear patterns found.` },
+      { role: 'user', content: JSON.stringify(dismissed.map(d => ({
+        title: d.title,
+        source: d.source,
+        snippet: d.source_snippet?.slice(0, 200),
+        reason: d.dismissal_reason,
+      }))) },
+    ],
     ...({
-      extra_body: {
-        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
-        provider: { sort: 'price' },
-        plugins: [{ id: 'response-healing' }],
-        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: ruleSchema } },
-      },
+      models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+      provider: { sort: 'price' },
+      plugins: [{ id: 'response-healing' }],
+      response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: ruleSchema } },
     } as any),
-  })
+  } as any)
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const text = response.choices[0]?.message?.content || ''
   let parsed: any
   try {
     parsed = JSON.parse(text)

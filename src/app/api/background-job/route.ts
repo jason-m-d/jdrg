@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
+import { openrouterClient } from '@/lib/openrouter'
 import { getMainConversation, insertProactiveMessage } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
 import {
@@ -127,19 +128,13 @@ async function executeJob(job: BackgroundJob): Promise<string> {
     ? 'anthropic/claude-sonnet-4.6:exacto'
     : 'google/gemini-3.1-flash-lite-preview'
 
-  const extraBody = isComplex
-    ? {
-        extra_body: {
-          models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'],
-          provider: { sort: 'latency' },
-        },
-      }
-    : {
-        extra_body: {
-          models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
-          provider: { sort: 'price' },
-        },
-      }
+  // Complex jobs use Claude via Anthropic SDK; simple jobs use Gemini via openrouterClient
+  const extraBody = {
+    extra_body: {
+      models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'],
+      provider: { sort: 'latency' },
+    },
+  }
 
   // Load context relevant to this job's prompt
   const contextParts: string[] = []
@@ -206,20 +201,33 @@ You are running as a background agent - no user is present. Your job is to do th
 
 ${contextBlock ? `\n\n${contextBlock}` : ''}`
 
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 2000,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: job.prompt,
-      },
-    ],
-    ...(extraBody as any),
-  })
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  let text: string
+  if (isComplex) {
+    // Complex jobs: use Claude Sonnet via Anthropic SDK
+    const response = await anthropic.messages.create({
+      model,
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: job.prompt }],
+      ...(extraBody as any),
+    })
+    text = response.content[0].type === 'text' ? response.content[0].text : ''
+  } else {
+    // Simple jobs: use Gemini via openrouterClient to avoid Anthropic SDK header routing issues
+    const response = await openrouterClient.chat.completions.create({
+      model,
+      max_tokens: 2000,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: job.prompt },
+      ],
+      ...({
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+      } as any),
+    } as any)
+    text = response.choices[0]?.message?.content || ''
+  }
   if (!text) throw new Error('AI returned empty response')
 
   return text

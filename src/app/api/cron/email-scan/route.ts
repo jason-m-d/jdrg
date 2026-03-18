@@ -6,11 +6,30 @@ import { getMainConversation, insertProactiveMessage, getUserPreferences } from 
 import { buildFewShotBlock } from '@/lib/training'
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
+import { openrouterClient } from '@/lib/openrouter'
 
+// Anthropic client used only for Claude models (main chat, etc.)
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
-const BACKGROUND_EXTRA_BODY = { extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } }
 
-// OpenRouter structured output + response healing for JSON calls
+// Background Google model calls go through openrouterClient (OpenAI-compatible)
+// to avoid the Anthropic SDK header that forces routing to Anthropic providers.
+const BACKGROUND_MODEL = 'google/gemini-2.0-flash-001'
+const BACKGROUND_FALLBACK = 'google/gemini-flash-1.5'
+
+// extra_body for openrouterClient calls (passed as request_options body extras)
+function jsonBody(schema: Record<string, unknown>) {
+  return {
+    models: [BACKGROUND_MODEL, BACKGROUND_FALLBACK],
+    provider: { sort: 'price' },
+    plugins: [{ id: 'response-healing' }],
+    response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema } },
+  }
+}
+
+// Keep BACKGROUND_EXTRA_BODY for the Anthropic-SDK alert call (uses Claude-compatible path)
+const BACKGROUND_EXTRA_BODY = { extra_body: { models: [BACKGROUND_MODEL, BACKGROUND_FALLBACK], provider: { sort: 'price' } } }
+
+// Legacy helper kept for the alert call which still uses the Anthropic client
 function jsonExtraBody(schema: Record<string, unknown>) {
   return {
     extra_body: {
@@ -284,18 +303,17 @@ export async function POST(req: NextRequest) {
             ? `${systemPrompt}\n\n${fewShotBlock}`
             : systemPrompt
 
-          const response = await anthropic.messages.create({
+          const response = await openrouterClient.chat.completions.create({
             model: 'google/gemini-3.1-flash-lite-preview',
             max_tokens: 1024,
-            system: [{ type: 'text', text: fullSystemPrompt, cache_control: { type: 'ephemeral' } }] as any,
-            messages: [{
-              role: 'user',
-              content: emailText,
-            }],
-            ...(jsonExtraBody(EMAIL_EXTRACTION_SCHEMA) as any),
-          })
+            messages: [
+              { role: 'system', content: fullSystemPrompt },
+              { role: 'user', content: emailText },
+            ],
+            ...jsonBody(EMAIL_EXTRACTION_SCHEMA),
+          } as any)
 
-          const text = response.content[0].type === 'text' ? response.content[0].text : ''
+          const text = response.choices[0]?.message?.content || ''
           let parsed: any
           try {
             parsed = JSON.parse(text)
@@ -681,22 +699,35 @@ async function parseWingstopSales(email: any) {
       return
     }
 
-    const response = await anthropic.messages.create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+    const response = await openrouterClient.chat.completions.create({
+      model: BACKGROUND_MODEL,
       max_tokens: 1024,
-      system: `Parse this Wingstop "Daily Forecast vs Actuals Summary" report. For each store section (identified by store number like 0326, 0451, etc.), find the most recent date row that has a non-zero "Sales Actual" value. Extract that date, the sales actual figure, the forecast figure (often labeled "Sales Forecast" or "Forecast"), and the budget figure (often labeled "Sales Budget" or "Budget") from the SAME date row.
+      messages: [
+        {
+          role: 'system',
+          content: `Parse this Wingstop "Daily Forecast vs Actuals Summary" report. The PDF has columns in this order: Sales Forecast, Sales Actual, Sales Variance.
 
-Store numbers to extract: 326, 451, 895, 1870, 2067, 2428, 2262, 2289. Strip leading zeros from store numbers in your output.
+CRITICAL: Extract the "Sales Actual" column, NOT "Sales Forecast". These are adjacent columns and easy to confuse. The Sales Actual value is the SECOND numeric column after the date, not the first.
+
+For each store section (identified by store number like 0326, 0451, etc.), find the most recent date row that has a non-zero "Sales Actual" value. Extract:
+- net_sales = the "Sales Actual" value (SECOND column, not first)
+- forecast_sales = the "Sales Forecast" value (FIRST column)
+- budget_sales = the "Sales Budget" or "Budget" value if present, otherwise null
+- report_date = the date from that row
+
+Store numbers to extract: 326, 451, 895, 1870, 2067, 2428, 2262, 2289. Strip leading zeros.
 
 Return JSON only:
-{ "stores": [{ "store_number": "326", "store_name": "Coleman", "net_sales": 1234.56, "forecast_sales": 1300.00, "budget_sales": 1250.00, "report_date": "2026-01-15" }] }
+{ "stores": [{ "store_number": "326", "store_name": "Coleman", "net_sales": 10070.84, "forecast_sales": 13120.00, "budget_sales": null, "report_date": "2026-03-15" }] }
 
-If a store has no actual data yet, omit it. If forecast or budget values aren't present, use null. Use YYYY-MM-DD for dates.`,
-      messages: [{ role: 'user', content: pdfText.slice(0, 8000) }],
-      ...(jsonExtraBody(WINGSTOP_SALES_SCHEMA) as any),
-    })
+If a store has no actual data yet (Sales Actual is 0.00 for all dates), omit it. Use YYYY-MM-DD for dates.`,
+        },
+        { role: 'user', content: pdfText.slice(0, 8000) },
+      ],
+      ...jsonBody(WINGSTOP_SALES_SCHEMA),
+    } as any)
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const text = response.choices[0]?.message?.content || ''
     const parsed = parseJsonSafe(text)
 
     console.log(`[wingstop-sales] AI returned ${parsed.stores?.length || 0} stores`)
@@ -738,10 +769,13 @@ async function parseMrPicklesSales(email: any) {
       return
     }
 
-    const response = await anthropic.messages.create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+    const response = await openrouterClient.chat.completions.create({
+      model: BACKGROUND_MODEL,
       max_tokens: 1024,
-      system: `Parse this Mr. Pickle's Daily Sales Report. Extract the Net Sales total (from the Net Sales section, not Gross Sales) for each store. The report date is in the header (Date: MM/DD/YYYY).
+      messages: [
+        {
+          role: 'system',
+          content: `Parse this Mr. Pickle's Daily Sales Report. Extract the Net Sales total (from the Net Sales section, not Gross Sales) for each store. The report date is in the header (Date: MM/DD/YYYY).
 
 Stores to extract: 405 (Fresno / Blackstone) and 1008 (Van Nuys / Sepulveda). A single report may cover one or both stores.
 
@@ -749,11 +783,13 @@ Return JSON only:
 { "stores": [{ "store_number": "405", "store_name": "Fresno", "net_sales": 1234.56, "report_date": "2026-01-15" }] }
 
 Use YYYY-MM-DD for dates.`,
-      messages: [{ role: 'user', content: pdfText.slice(0, 8000) }],
-      ...(jsonExtraBody(MR_PICKLES_SALES_SCHEMA) as any),
-    })
+        },
+        { role: 'user', content: pdfText.slice(0, 8000) },
+      ],
+      ...jsonBody(MR_PICKLES_SALES_SCHEMA),
+    } as any)
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const text = response.choices[0]?.message?.content || ''
     const parsed = parseJsonSafe(text)
 
     if (parsed.stores) {

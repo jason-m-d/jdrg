@@ -59,8 +59,8 @@ export async function refreshAccessToken(account: string): Promise<string> {
 
   if (!token) throw new Error(`No token found for ${account}`)
 
-  // Check if still valid
-  if (token.expires_at && new Date(token.expires_at) > new Date()) {
+  // Check if still valid (5-minute safety margin guards against clock skew and late revocations)
+  if (token.expires_at && new Date(token.expires_at) > new Date(Date.now() + 300000)) {
     return token.access_token
   }
 
@@ -88,16 +88,23 @@ export async function refreshAccessToken(account: string): Promise<string> {
 }
 
 export async function fetchEmails(account: string, since: Date, maxResults = 20, extraQuery?: string) {
-  const accessToken = await refreshAccessToken(account)
+  let accessToken = await refreshAccessToken(account)
   const sinceEpoch = Math.floor(since.getTime() / 1000)
   const q = extraQuery ? `after:${sinceEpoch} ${extraQuery}` : `after:${sinceEpoch}`
 
   console.log(`[gmail] fetchEmails q=${q} max=${maxResults}`)
 
-  const listRes = await fetch(
-    `https://www.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  )
+  const listUrl = `https://www.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`
+  let listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+
+  if (listRes.status === 401) {
+    console.warn('[gmail] Got 401, clearing cached token and retrying...')
+    await supabaseAdmin.from('gmail_tokens').update({ access_token: null, expires_at: null }).eq('account', account)
+    accessToken = await refreshAccessToken(account)
+    listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (listRes.status === 401) throw new Error('Gmail API error: 401 after token refresh')
+  }
+
   const listData = await listRes.json()
 
   console.log(`[gmail] listData status=${listRes.status} messages=${listData.messages?.length ?? 0} error=${listData.error?.message ?? 'none'}`)

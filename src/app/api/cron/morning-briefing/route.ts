@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { buildBriefingPrompt } from '@/lib/system-prompt'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+import { openrouterClient } from '@/lib/openrouter'
 
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
@@ -86,16 +84,18 @@ export async function POST(req: NextRequest) {
       fullPrompt += `\n\nActive Notification Rules (mention only if relevant to today's items):\n${ruleLines.join('\n')}`
     }
 
-    // Generate briefing via Claude
-    const response = await anthropic.messages.create({
+    // Generate briefing via Gemini
+    const response = await openrouterClient.chat.completions.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      system: fullPrompt,
-      messages: [{ role: 'user', content: 'Generate the morning briefing.' }],
-      ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
-    })
+      messages: [
+        { role: 'system', content: fullPrompt },
+        { role: 'user', content: 'Generate the morning briefing.' },
+      ],
+      ...({ models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } as any),
+    } as any)
 
-    const briefingText = response.content[0].type === 'text' ? response.content[0].text : ''
+    const briefingText = response.choices[0]?.message?.content || ''
 
     // Format with prefix
     const today = new Date()

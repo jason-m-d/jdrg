@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getTrainingStats } from '@/lib/training'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
-
-const BACKGROUND_EXTRA_BODY = { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } }
+import { openrouterClient } from '@/lib/openrouter'
 
 const RULES_SCHEMA = {
   type: 'object',
@@ -55,10 +51,11 @@ export async function POST(req: NextRequest) {
       return `[${label}] ${snippet}`
     })
 
-    const response = await anthropic.messages.create({
+    const response = await openrouterClient.chat.completions.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      system: `You analyze labeled examples of emails/messages and extract clear rules about what the user considers an action item vs not.
+      messages: [
+        { role: 'system', content: `You analyze labeled examples of emails/messages and extract clear rules about what the user considers an action item vs not.
 
 Return JSON only:
 {
@@ -70,21 +67,18 @@ Return JSON only:
 }
 
 Categories: always_flag, never_flag, conditional.
-Keep rules specific and actionable. 5-10 rules max. Base them on clear patterns in the data.`,
-      messages: [{
-        role: 'user',
-        content: `Here are ${examples.length} labeled examples. Extract rules:\n\n${exampleLines.join('\n\n')}`,
-      }],
+Keep rules specific and actionable. 5-10 rules max. Base them on clear patterns in the data.` },
+        { role: 'user', content: `Here are ${examples.length} labeled examples. Extract rules:\n\n${exampleLines.join('\n\n')}` },
+      ],
       ...({
-        extra_body: {
-          ...BACKGROUND_EXTRA_BODY,
-          plugins: [{ id: 'response-healing' }],
-          response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: RULES_SCHEMA } },
-        },
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: RULES_SCHEMA } },
       } as any),
-    })
+    } as any)
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const text = response.choices[0]?.message?.content || ''
     let parsed: any
     try {
       parsed = JSON.parse(text)

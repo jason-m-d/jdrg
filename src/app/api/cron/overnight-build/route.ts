@@ -16,15 +16,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getMainConversation } from '@/lib/proactive'
 import { spawnBackgroundJob, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: process.env.ANTHROPIC_BASE_URL,
-})
+import { openrouterClient } from '@/lib/openrouter'
 
 export const maxDuration = 60
 
@@ -113,10 +108,11 @@ export async function POST(req: NextRequest) {
   const alreadyBuilt: string[] = buildState.built_titles || []
 
   // Analyze for opportunities
-  const response = await anthropic.messages.create({
+  const response = await openrouterClient.chat.completions.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 1200,
-    system: `You are analyzing conversation transcripts to find opportunities to proactively build something useful for Jason DeMayo (CEO of DeMayo Restaurant Group - 8 Wingstop, 2 Mr. Pickle's).
+    messages: [
+      { role: 'system', content: `You are analyzing conversation transcripts to find opportunities to proactively build something useful for Jason DeMayo (CEO of DeMayo Restaurant Group - 8 Wingstop, 2 Mr. Pickle's).
 
 Look for:
 1. Explicit wishes: "I wish I had", "it would be nice if", "I need a way to", "someone should make"
@@ -138,19 +134,18 @@ Rules:
 - The build_prompt should be a specific, detailed instruction for an AI agent to create the artifact
 
 Return JSON: {"opportunities": [{"type": "template", "title": "...", "reason": "Jason asked about X three times today", "build_prompt": "Create a detailed...", "priority": "high"}]}
-Return {"opportunities": []} if nothing actionable found.`,
-    messages: [{ role: 'user', content: `Recent conversations (last 48h):\n\n${transcript}` }],
+Return {"opportunities": []} if nothing actionable found.` },
+      { role: 'user', content: `Recent conversations (last 48h):\n\n${transcript}` },
+    ],
     ...({
-      extra_body: {
-        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
-        provider: { sort: 'price' },
-        plugins: [{ id: 'response-healing' }],
-        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: ANALYSIS_SCHEMA } },
-      },
+      models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+      provider: { sort: 'price' },
+      plugins: [{ id: 'response-healing' }],
+      response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: ANALYSIS_SCHEMA } },
     } as any),
-  })
+  } as any)
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const text = response.choices[0]?.message?.content || ''
   let parsed: any
   try {
     parsed = JSON.parse(text)
