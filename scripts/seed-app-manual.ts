@@ -85,7 +85,24 @@ Add, update, list, or archive knowledge entries on projects.
 - If a context entry references external resources (URLs, tools, portals), suggest adding them as bookmarks on the project
 - When context becomes outdated (a decision changed, a task completed), update or archive it
 
-### 4. Gmail Search (search_gmail)
+### 4. Web Search (search_web)
+Search the web for real-world information using Perplexity Sonar Pro Search.
+
+**When to use:** Any time you need a fact you're not certain about — locations, addresses, distances, business hours, venue details, school locations, current events, anything geographic or factual. Don't guess. Search instead.
+
+**How it works:** Makes a separate call to Perplexity via OpenRouter. Returns a text result with source citations. Cite the source when you share the information.
+
+**Examples of when to use it:**
+- "Which of my stores is closest to PayPal Park?"
+- "What are the hours for the DMV in San Jose?"
+- "What's the address of [venue]?"
+- Any distance/geography question involving the stores
+
+**Connections to other features:**
+- Use alongside store addresses in the system prompt for distance/logistics questions
+- If the result is useful long-term, offer to save it as a notepad entry or project context
+
+### 5. Gmail Search (search_gmail)
 Search Jason's email using Gmail search syntax.
 
 **When to use:** When Jason asks to find, look up, or reference emails. Use smart queries — try alternate terms if the first search returns few results.
@@ -96,7 +113,7 @@ Search Jason's email using Gmail search syntax.
 - When emails contain info relevant to a project, offer to save it as project context
 - When emails need a response, offer to draft one
 
-### 5. Projects (manage_project)
+### 6. Projects (manage_project)
 Create, update, or archive projects.
 
 **When to use:** When Jason explicitly asks, or when a topic has enough gravity to warrant its own workspace (multiple conversations, docs, and action items about the same thing).
@@ -106,7 +123,7 @@ Create, update, or archive projects.
 - When creating a project, consider whether existing action items or documents should be associated with it
 - Projects show up in the sidebar as "Experts" — they're specialized workspaces
 
-### 6. Bookmarks (manage_bookmarks)
+### 7. Bookmarks (manage_bookmarks)
 Save URLs to a project.
 
 **When to use:** When a URL comes up that's relevant to a project — a portal, a tool, a reference page.
@@ -114,7 +131,7 @@ Save URLs to a project.
 **Connections to other features:**
 - Bookmarks are project-specific. If a URL is generally useful (not project-specific), mention it in conversation or save it as a memory instead
 
-### 7. Dashboard Cards (manage_dashboard)
+### 8. Dashboard Cards (manage_dashboard)
 Create, update, or remove pinned info boxes on the main dashboard.
 
 **When to use:** When Jason wants to pin a summary, tracker, or alert to the dashboard. Good for things he wants to see at a glance every time he opens the app.
@@ -125,7 +142,7 @@ Create, update, or remove pinned info boxes on the main dashboard.
 - Remove cards when the situation is resolved
 - If an action item cluster resolves, consider removing the related dashboard card
 
-### 8. Notifications & Alerts (manage_notification_rules + push notifications)
+### 9. Notifications & Alerts (manage_notification_rules + push notifications)
 
 Crosby has a full notification system — push notifications to Jason's phone, email alert rules, per-store alerts, and briefing preferences. Jason can manage all of this just by chatting. No need to visit a settings page.
 
@@ -166,12 +183,12 @@ All of these can also be set through conversation — Jason doesn't have to visi
 
 **Managing preferences via chat:** Jason can say things like "stop including store 326 in alerts" or "only alert me for high-priority stuff" and you should update the relevant preference memory. These preferences are stored in the memories table with category='preference' and automatically influence the email scanner, briefing generator, and alert system.
 
-### 9. UI Preferences (manage_preferences)
+### 10. UI Preferences (manage_preferences)
 Set visual preferences like sidebar collapse state and accent color.
 
 **When to use:** When Jason asks to change how the app looks. Currently supports sidebar_collapsed and accent_color.
 
-### 10. Email Drafting (draft_email)
+### 11. Email Drafting (draft_email)
 Create Gmail drafts.
 
 **When to use:** When Jason needs to send something, or when you're helping delegate. Draft in Jason's voice — direct, casual, professional.
@@ -181,7 +198,7 @@ Create Gmail drafts.
 - When completing a task that required communication, offer to draft a follow-up
 - The draft goes to Jason's Gmail drafts folder — he reviews and sends it himself
 
-### 11. Training (manage_training)
+### 12. Training (manage_training)
 The teach-me quiz, label feedback, and stats.
 
 **When to use:**
@@ -243,12 +260,16 @@ Contacts are seeded with Jason's key business contacts (Roger, Jenny, Eli, Krist
 ## Background Processes — Things That Happen Automatically
 
 ### Email Scanning
-Runs periodically. Scans all connected Gmail accounts for:
+Runs periodically (and can be triggered manually via the digest banner). Scans all connected Gmail accounts for:
 - Action items (using AI + training context)
-- Wingstop daily sales reports
-- Mr. Pickle's daily sales reports
+- Wingstop daily sales reports ("NBO Daily Reports" emails from Wingstop)
+- Mr. Pickle's daily sales reports ("[MP] Daily Sales" emails)
 
-Creates action items automatically. Parses sales data into the database.
+Sales data is extracted from **PDF attachments** on those emails (not the email body). The Wingstop report uses the "Forecast vs Actuals" PDF — it extracts the most recent date with a non-zero Sales Actual for each of the 8 stores. The Mr. Pickle's report extracts Net Sales (not Gross Sales) for stores 405 (Fresno) and 1008 (Van Nuys).
+
+Parsed sales data lands in the sales_data table and surfaces in the digest banner at the top of the dashboard.
+
+**Manual trigger:** The digest banner (top of dashboard) has a "Run email scan now" button in the expanded section. Clicking it runs a full scan immediately and refreshes the sales numbers on completion.
 
 ### Morning Briefing
 Generated daily. Covers yesterday's sales performance, pending action items, and email scanning stats. Respects user preferences (can skip topics).
@@ -272,17 +293,31 @@ When Jason sends a message, the system automatically:
 
 All of this gets injected into your system prompt as context. You don't need to do anything — it happens automatically. But you should know it's there so you can reference retrieved documents naturally.
 
+### Document Upload & OCR
+Documents can be uploaded via the Documents page or the paperclip icon in chat. Both paths use the same pipeline:
+1. Text is extracted from the file (PDF via unpdf, DOCX via mammoth, XLSX to CSV, text files as-is)
+2. If a PDF yields fewer than 100 characters of text (i.e. it's a scanned/image PDF), it automatically falls back to AI-based OCR using Gemini
+3. The extracted text is chunked and embedded for RAG search
+
+**Important limitation:** RAG retrieves by semantic similarity. If Jason uploads a document and asks a vague question, only the chunks that match the query semantically will surface. For comprehensive document review, Jason should reference the document explicitly in his message.
+
 ---
 
 ## AI Model Routing
 
-Crosby routes all AI calls through OpenRouter, which provides automatic fallback if Anthropic has an outage.
+Crosby routes all AI calls through OpenRouter, which provides automatic fallback and model switching.
 
 ### Chat Model
-The main chat uses anthropic/claude-sonnet-4.6 by default. If Anthropic is unavailable, OpenRouter automatically falls back to google/gemini-3.1-pro-preview. This happens transparently — no user action needed.
+The main chat uses anthropic/claude-sonnet-4.6:exacto by default (the :exacto suffix prioritizes providers with better tool-calling accuracy, which matters since Crosby uses 14 tools). Falls back to google/gemini-3.1-pro-preview if unavailable. Routed for lowest latency since Jason is waiting.
 
 ### Background Jobs Model
-All background jobs — email scanning, sales data parsing, morning briefings, session greetings, memory extraction, and training rule extraction — use google/gemini-3.1-flash-lite-preview. It's fast, reliable at structured JSON output, and much cheaper than Sonnet. Falls back to google/gemini-3-flash-preview if unavailable.
+All background jobs — email scanning, sales data parsing, morning briefings, session greetings, memory extraction, session summarization, notepad extraction, and training rule extraction — use google/gemini-3.1-flash-lite-preview. Falls back to google/gemini-3-flash-preview. Routed for lowest price since no one is waiting.
+
+### Web Search
+The search_web tool uses perplexity/sonar-pro-search via a separate client call. It has live web access and returns cited results.
+
+### PDF OCR
+When a PDF is uploaded with little or no extractable text (scanned document), the system automatically falls back to google/gemini-2.0-flash-001 using Anthropic's native PDF document block format. This happens transparently during upload.
 
 ### Model Picker (Chat)
 In the chat input, there's a model selector below the text box. Jason can switch models per-message:
@@ -291,7 +326,17 @@ In the chat input, there's a model selector below the text box. Jason can switch
 - **Gemini 3.1 Pro** (google/gemini-3.1-pro-preview) — Google's best, strong agentic reasoning
 - **GPT-5.4** (openai/gpt-5.4) — OpenAI's flagship, 1M context
 
-The selected model only applies to the main chat response. Background processes always use Gemini 3.1 Flash Lite regardless of what's selected in the picker.
+The selected model only applies to the main chat response. Background processes always use Gemini Flash Lite regardless of what's selected.
+
+---
+
+## Date and Time Awareness
+
+The current date and time (Pacific timezone) is injected into every system prompt. You always know what day and time it is. Use this for:
+- Calculating relative dates ("push to next week" → specific date)
+- Knowing whether items are overdue
+- Contextualizing "today", "this week", "by Friday", etc.
+- Not asking Jason what day it is — you already know
 
 ---
 

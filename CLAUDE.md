@@ -14,8 +14,24 @@
 ## Stack
 - Next.js (App Router), TypeScript, Tailwind CSS
 - Supabase (Postgres + auth + storage)
-- Anthropic Claude API for the AI chat
+- Anthropic Claude API for the AI chat (routed through OpenRouter via ANTHROPIC_BASE_URL)
 - Voyage AI for embeddings (RAG)
+
+## AI Routing (OpenRouter)
+All AI calls go through OpenRouter (`ANTHROPIC_BASE_URL`). Do not call Anthropic directly.
+
+- **Main chat:** `anthropic/claude-sonnet-4.6:exacto` (`:exacto` suffix = prefer providers with better tool-calling accuracy). Fallback array: `["anthropic/claude-sonnet-4.6:exacto", "google/gemini-3.1-pro-preview"]`. Provider sort: `latency`.
+- **Background jobs** (email scan, morning briefing, session greeting, memory extraction, session summarization, notepad extraction, training rules): `google/gemini-3.1-flash-lite-preview`. Fallback: `google/gemini-3-flash-preview`. Provider sort: `price`.
+- **Web search:** `perplexity/sonar-pro-search` via a separate client call inside `executeWebSearch()`.
+- **PDF OCR fallback:** `google/gemini-2.0-flash-001` via Anthropic document block format.
+- Pass fallbacks via `extra_body: { models: [...], provider: { sort: "..." } }` — NOT via `X-OR-Models` header (that's undocumented and was removed).
+- System prompt uses `cache_control: { type: "ephemeral" }` on the main chat stream to reduce token cost on the 10-20KB prompt.
+
+## Document Pipeline
+- Uploads go through `/api/documents/upload` — same endpoint for both the Documents page and the chat paperclip attachment.
+- PDF text extraction uses `unpdf` (`src/lib/pdf.ts`). If extracted text < 100 chars, falls back to `ocrPdfWithAI()` which sends the PDF bytes to Gemini via Anthropic document block format.
+- Chunking + embedding (Voyage AI) runs in the background after every upload.
+- Files attached via the paperclip are uploaded immediately on selection, before the user hits send.
 
 ## Verification Rule
 - If you instruct the user to do something within the app (click a button, use a feature, navigate somewhere, etc.), you must first verify that the thing actually exists and is rendering in the UI. If it's not there, flag it immediately so we can build it out. Don't send the user on a hunt for something that doesn't exist yet.
