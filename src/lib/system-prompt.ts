@@ -203,6 +203,18 @@ interface ActiveWatch {
   match_criteria: { keywords?: string[] }
 }
 
+export interface RecentText {
+  contact_name: string | null
+  phone_number: string
+  message_text: string
+  service: string
+  message_date: string
+  is_from_me: boolean
+  is_group_chat: boolean
+  group_chat_name: string | null
+  flag_reason: string | null
+}
+
 export function buildSystemPrompt(options?: {
   projectSystemPrompt?: string | null
   memories?: Memory[]
@@ -223,6 +235,7 @@ export function buildSystemPrompt(options?: {
   awaitingReplies?: AwaitingReply[]
   activeWatches?: ActiveWatch[]
   calendarEvents?: CalendarEventEntry[]
+  recentTexts?: RecentText[]
 }): string {
   const now = new Date()
   const pacificTime = now.toLocaleString('en-US', {
@@ -343,6 +356,24 @@ DELEGATION STYLE:
   if (options?.calendarEvents && options.calendarEvents.length > 0) {
     const calSection = formatCalendarSection(options.calendarEvents, options.contacts, options.actionItems)
     if (calSection) parts.push(calSection)
+  }
+
+  // Flagged texts (last 48 hours)
+  if (options?.recentTexts && options.recentTexts.length > 0) {
+    const now = new Date()
+    const textLines = options.recentTexts.map(t => {
+      const ageMs = now.getTime() - new Date(t.message_date).getTime()
+      const ageH = Math.floor(ageMs / 3600000)
+      const ageM = Math.floor((ageMs % 3600000) / 60000)
+      const ageStr = ageH > 0 ? `${ageH}h ago` : `${ageM}m ago`
+
+      const sender = t.is_group_chat
+        ? (t.group_chat_name ?? 'Group chat')
+        : (t.contact_name ?? t.phone_number)
+      const preview = t.message_text.slice(0, 120).replace(/\n/g, ' ')
+      return `- ${sender} (${t.service}, ${ageStr}): "${preview}"`
+    })
+    parts.push(`\n\n--- Recent Flagged Texts ---\n${textLines.join('\n')}\n\nThese are business-relevant texts from the last 48 hours. Reference them naturally when relevant. Use search_texts to look up older messages or search by contact/keyword. Use manage_text_contacts to save contact names and roles. Use manage_group_whitelist to add group chats to the sync whitelist.`)
   }
 
   if (options?.awaitingReplies && options.awaitingReplies.length > 0) {

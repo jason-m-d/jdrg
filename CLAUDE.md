@@ -50,3 +50,10 @@ All AI calls go through OpenRouter (`ANTHROPIC_BASE_URL`). Do not call Anthropic
 - **When you add a meaningful feature, change how a feature works, or add a new tool/background process**, update the app manual content in `seed-app-manual.ts` to reflect the change. Then re-seed it by running `npx tsx scripts/seed-app-manual.ts`.
 - The manual covers: all tools, background processes, feature connections, proactive behavior guidelines, and how the app layout works. Keep it accurate.
 - Small UI tweaks and copy changes don't need a manual update — only changes that affect what the bot can do or how features work.
+
+## Crosby Eval Skill (QA Co-Pilot)
+- The eval skill lives at `.claude/commands/crosby-eval/SKILL.md`. It's what Jason uses with Claude Code to QA Crosby's responses.
+- The skill is designed to dynamically discover the current app state (tables, tools, prompt rules, crons) at the start of each eval session, so it stays current without manual updates for most changes.
+- **However, if you make a structural change that affects how eval should work** - like changing how tool calls are stored in messages, adding a new evaluation dimension, changing the background job execution flow, or restructuring the system prompt format - update the eval skill to reflect that change.
+- The eval skill does NOT need updates for: new tables, new tools, new cron jobs, prompt wording changes, or new features. It discovers those dynamically.
+- It DOES need updates for: changes to message format/storage, changes to how tool calls are embedded in content, new workflow modes, or architectural changes to the chat pipeline.

@@ -19,6 +19,18 @@
     {
       "path": "/api/cron/calendar-sync",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/text-scan",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/text-heartbeat-monitor",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/text-cleanup",
+      "schedule": "0 3 * * *"
     }
   ]
 }

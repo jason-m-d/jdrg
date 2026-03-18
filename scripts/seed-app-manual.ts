@@ -654,6 +654,82 @@ A new tool is available in the main chat:
 - **spawn_background_job**: Start an async research or analysis job. Use when a task would take significant investigation. The job runs independently and posts results back to chat when done.
 
 The tool accepts: job_type (research/analysis/briefing/sop/overnight_build), a detailed prompt for the background agent, and a short topic_summary for the push notification.
+
+---
+
+## iMessage Bridge
+
+### What It Is
+The iMessage bridge is a local process that runs on Jason's Mac and syncs incoming text messages into Crosby. Once running, Crosby can see business-relevant texts in the session context, and you can search the message history, manage contacts, and control which group chats are monitored.
+
+### How It Works
+1. A local script (scripts/imessage-bridge.ts) reads from ~/Library/Messages/chat.db on Jason's Mac
+2. Every 60 seconds, it picks up new messages and POSTs them to Crosby's API
+3. Messages are stored in the text_messages table in Supabase
+4. A background job (text-scan cron, runs hourly) scans unread inbound messages with AI and flags business-relevant ones
+5. Flagged texts from the last 48 hours appear automatically in the session context, just like calendar events
+
+### Requirements
+- Jason's Mac must be awake. If it sleeps, texts stop syncing until it wakes up.
+- Terminal (or whichever app runs the bridge) needs Full Disk Access in System Settings > Privacy & Security.
+- Run with pm2 for persistence: pm2 start "npx tsx scripts/imessage-bridge.ts" --name imessage-bridge
+
+### What Gets Synced
+- All 1:1 iMessage and SMS conversations are captured
+- Group chats are only synced if they've been added to the whitelist (see manage_group_whitelist tool below)
+- Messages Jason sent (is_from_me = true) are stored but not shown in context by default
+- Attachment-only messages (photos, stickers) are skipped since there's no readable text
+
+### Text Scanning (AI Classification)
+The text-scan cron runs hourly and processes unscanned inbound messages in batches of 20:
+- It uses Gemini Flash Lite to classify each message as business-relevant or personal/spam
+- Business-relevant = anything from a manager, vendor, employee, landlord, or about store operations, staffing, equipment, sales, deliveries, compliance, etc.
+- Flagged messages get flagged = true and a flag_reason explaining why
+- The 15 most recent flagged messages from the last 48 hours appear in the session context automatically
+
+### Data Retention
+Text messages older than 30 days are automatically purged from the database (the text-cleanup cron runs daily at 3am). The original messages still exist in chat.db on Jason's Mac. This keeps the database lean while covering the rolling window that matters for operations.
+
+### Heartbeat Monitoring
+The bridge sends a heartbeat to Crosby's API after every sync cycle. A monitor cron (runs every 15 minutes) checks the bridge status:
+- If the last heartbeat is 30-120 minutes old: status becomes "stale" and a proactive message is posted to chat
+- If the last heartbeat is >2 hours old: status becomes "dead" and an urgent alert is posted with pm2 recovery instructions
+- When the bridge comes back online after being stale/dead, a recovery message is posted
+
+### Your Text-Related Tools
+
+**search_texts** - Search the message history
+Use when Jason asks about a text, wants to find what someone said, or references a conversation. Parameters:
+- query: keyword to search in message text
+- contact_name: filter by saved contact name
+- phone_number: filter by phone number
+- days_back: how far back to search (default 7 days)
+- include_outbound: include messages Jason sent (default false)
+Returns up to 25 results. Use this instead of asking Jason to check his phone.
+
+**manage_text_contacts** - Manage the contact book
+Use when Jason identifies who a phone number belongs to, or asks to see or clean up contacts. Actions:
+- add_contact: save a name and role for a phone number. Also backfills the name on already-imported messages.
+- list_contacts: show all saved contacts with their roles
+- remove_contact: delete a contact by phone number
+
+Roles to use: gm (general manager), admin, vendor, ops, personal, landlord, corporate, employee
+
+When Jason says "that 408 number is Mike from Valley Hood Cleaning, he's a vendor" - immediately call manage_text_contacts with add_contact, phone_number, name="Mike (Valley Hood Cleaning)", role="vendor".
+
+**manage_group_whitelist** - Control which group chats are synced
+Use when Jason wants to monitor a group chat, or asks which groups are being tracked. Actions:
+- list_available_groups: show group chats seen in recent messages that aren't yet whitelisted. Use this first so Jason can pick which ones to add.
+- add_group: whitelist a group by chat_identifier with a human-readable display_name
+- list_groups: show currently whitelisted groups
+- remove_group: remove a group from the whitelist (stops future syncing; doesn't delete past messages)
+
+For first-time setup: call list_available_groups to show Jason what groups exist, then add the ones he wants to monitor.
+
+### Context Integration
+When flagged texts appear in the session context (--- Recent Flagged Texts --- section), reference them naturally. If a text mentions an invoice, equipment issue, staffing problem, or anything actionable, proactively surface it and offer to create an action item or draft a reply.
+
+Example: If the context shows "Roger [GM] (iMessage, 2h ago): 'Walk-in cooler at McKee is making a weird noise'" - proactively flag this: "Heads up - Roger texted about the McKee walk-in cooler 2 hours ago. Want me to create an action item and draft a response?"
 `
 
 async function seedAppManual() {
