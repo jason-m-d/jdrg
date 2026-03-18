@@ -106,6 +106,9 @@ export async function GET(req: NextRequest) {
       nudgesSentResult,
       approachingCommitmentsResult,
       unansweredEmailsResult,
+      recentAutoWatchesResult,
+      upcomingCalendarResult,
+      missedMeetingsResult,
     ] = await Promise.all([
       // Active action items (excluding snoozed)
       supabaseAdmin
@@ -231,6 +234,29 @@ export async function GET(req: NextRequest) {
             .order('last_message_date', { ascending: false })
             .limit(5)
         : Promise.resolve({ data: null }),
+      // Digest: recently auto-created watches
+      supabaseAdmin
+        .from('user_state')
+        .select('value')
+        .eq('key', 'recent_auto_watches')
+        .single(),
+      // Today's remaining calendar events (start_time > now)
+      supabaseAdmin
+        .from('calendar_events')
+        .select('title, start_time, end_time, all_day, location, attendees, organizer_email, status')
+        .gte('start_time', new Date().toISOString())
+        .lte('start_time', new Date(new Date().toISOString().split('T')[0] + 'T23:59:59Z').toISOString())
+        .order('start_time', { ascending: true }),
+      // Digest: meetings that happened while away
+      awaySinceISO
+        ? supabaseAdmin
+            .from('calendar_events')
+            .select('title, start_time, end_time, attendees, location')
+            .gte('start_time', awaySinceISO)
+            .lt('start_time', new Date().toISOString())
+            .order('start_time', { ascending: true })
+            .limit(10)
+        : Promise.resolve({ data: null }),
     ])
 
     const actionItems = actionItemsResult.data || []
@@ -341,6 +367,32 @@ FORMATTING (critical):
         digestParts.push(`${unanswered.length} unanswered email${unanswered.length > 1 ? 's' : ''}: ${unanswered.slice(0, 3).map((e: any) => `"${e.subject}" from ${e.last_sender}`).join(', ')}`)
       }
 
+      // Meetings that happened while away
+      const missedMeetings = (missedMeetingsResult as any)?.data || []
+      if (missedMeetings.length > 0) {
+        const meetingLines = missedMeetings.slice(0, 4).map((m: any) => {
+          const time = new Date(m.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).toLowerCase()
+          const attendeeNames = (m.attendees || [])
+            .filter((a: any) => !['jason@hungry.llc', 'jason@demayorestaurantgroup.com', 'jasondemayo@gmail.com'].includes(a.email?.toLowerCase()))
+            .map((a: any) => a.name?.split(' ')[0] || a.email?.split('@')[0])
+            .slice(0, 3)
+          let line = `"${m.title}" at ${time}`
+          if (attendeeNames.length > 0) line += ` (with ${attendeeNames.join(', ')})`
+          return line
+        })
+        digestParts.push(`${missedMeetings.length} meeting${missedMeetings.length > 1 ? 's' : ''} happened while you were away: ${meetingLines.join('; ')}`)
+      }
+
+      // Recently auto-created watches from conversation extraction
+      const recentWatchData = (recentAutoWatchesResult as any)?.data?.value
+      if (recentWatchData?.watches?.length > 0) {
+        const watchAge = recentWatchData.updated_at ? (Date.now() - new Date(recentWatchData.updated_at).getTime()) / 3600000 : 999
+        if (watchAge < 24) { // Only mention watches created in the last 24h
+          const watchList = recentWatchData.watches.slice(0, 3)
+          digestParts.push(`I'm keeping an eye out for: ${watchList.join(', ')}`)
+        }
+      }
+
       if (digestParts.length > 0) {
         const hours = Math.round((Date.now() - awaySince.getTime()) / 3600000)
         prompt += `\nWHILE YOU WERE AWAY (${hours}h since last activity):\n${digestParts.map(p => `- ${p}`).join('\n')}\nWeave 1-2 of the most important digest items into your greeting naturally. Don't list them all.\n`
@@ -349,6 +401,25 @@ FORMATTING (critical):
 
     if (sessionType === 'morning' && !hasBriefingToday && salesData.length > 0) {
       prompt += `\nSales data available:\n${salesData.map(s => `- ${s.store_name} (#${s.store_number}): $${s.net_sales?.toLocaleString()}`).join('\n')}\n`
+    }
+
+    // Upcoming calendar events
+    const upcomingEvents = (upcomingCalendarResult as any).data || []
+    if (upcomingEvents.length > 0) {
+      const eventLines = upcomingEvents.slice(0, 5).map((e: any) => {
+        const time = e.all_day
+          ? 'All day'
+          : new Date(e.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).toLowerCase()
+        const attendeeNames = (e.attendees || [])
+          .filter((a: any) => !['jason@hungry.llc', 'jason@demayorestaurantgroup.com', 'jasondemayo@gmail.com'].includes(a.email?.toLowerCase()))
+          .map((a: any) => a.name?.split(' ')[0] || a.email?.split('@')[0])
+          .slice(0, 3)
+        let line = `- ${time}: ${e.title}`
+        if (attendeeNames.length > 0) line += ` (with ${attendeeNames.join(', ')})`
+        if (e.location) line += ` @ ${e.location}`
+        return line
+      })
+      prompt += `\nUpcoming meetings today (${upcomingEvents.length} remaining):\n${eventLines.join('\n')}\nMention the next meeting naturally if it's soon (within 1-2 hours).\n`
     }
 
     if (sessionType === 'evening') {

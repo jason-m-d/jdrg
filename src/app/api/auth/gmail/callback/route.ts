@@ -40,6 +40,23 @@ export async function GET(req: NextRequest) {
     expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
   }, { onConflict: 'account' })
 
+  // Also store calendar tokens (same credentials, calendar scope was requested alongside Gmail)
+  await supabaseAdmin.from('calendar_tokens').upsert({
+    account,
+    refresh_token: tokens.refresh_token,
+    access_token: tokens.access_token,
+    expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+  }, { onConflict: 'account' })
+
+  // Create calendar_syncs entry if not exists
+  const { data: existingSync } = await supabaseAdmin.from('calendar_syncs').select('id').eq('account', account).single()
+  if (!existingSync) {
+    await supabaseAdmin.from('calendar_syncs').insert({
+      account,
+      events_synced: 0,
+    })
+  }
+
   // Create email_scans entry if not exists
   const { data: existing } = await supabaseAdmin.from('email_scans').select('id').eq('account', account).single()
   if (!existing) {

@@ -154,7 +154,7 @@ export function DigestBanner() {
     return (
       <button
         onClick={() => setDismissed(false)}
-        className="group flex items-center gap-1.5 px-5 py-1.5 text-[0.6875rem] text-muted-foreground/60 hover:text-muted-foreground border-b border-border transition-colors"
+        className="group flex items-center gap-1.5 px-5 py-1.5 text-[0.6875rem] text-muted-foreground/60 hover:text-muted-foreground border-b border-border bg-sidebar transition-colors"
       >
         <ChevronDown className="size-3 opacity-0 group-hover:opacity-100 transition-opacity" />
         <span className="tracking-wide uppercase">Digest</span>
@@ -163,7 +163,7 @@ export function DigestBanner() {
   }
 
   return (
-    <div className="border-b border-border animate-in-fade">
+    <div className="border-b border-border animate-in-fade bg-sidebar">
       {/* Summary bar — always visible */}
       <div className="flex items-center justify-between px-5 h-9">
         <button
@@ -240,7 +240,7 @@ export function DigestBanner() {
 
       {/* Expandable detail — animated with CSS grid */}
       <div className="digest-expand" data-expanded={expanded}>
-        <div>
+        <div onClick={() => setExpanded(false)} className="cursor-pointer">
           <div className="px-5 pb-4 pt-1">
             {/* Divider */}
             <div className="h-px bg-border mb-3" />
@@ -288,7 +288,7 @@ export function DigestBanner() {
             </div>
 
             {/* Manual scan trigger */}
-            <div className="mt-3 pt-3 border-t border-border flex items-center gap-3">
+            <div className="mt-3 pt-3 border-t border-border flex items-center gap-3" onClick={e => e.stopPropagation()}>
               <button
                 onClick={runScan}
                 disabled={scanning}

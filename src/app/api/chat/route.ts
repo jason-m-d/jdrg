@@ -2,10 +2,11 @@ import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, retrieveRelevantContextChunks, buildContext, retrieveRelevantDecisions } from '@/lib/rag'
-import { generateQueryEmbedding } from '@/lib/voyage'
+import { generateQueryEmbedding } from '@/lib/embeddings'
 import { chunkAndEmbedContext } from '@/lib/embed-context'
-import { buildSystemPrompt } from '@/lib/system-prompt'
+import { buildSystemPrompt, CalendarEventEntry } from '@/lib/system-prompt'
 import { searchEmails, createDraft } from '@/lib/gmail'
+import { getConnectedCalendarAccount, fetchUpcomingEvents, createCalendarEvent } from '@/lib/calendar'
 import { buildFewShotBlock, storeTrainingExample, getTrainingStats } from '@/lib/training'
 import { fetchEmails } from '@/lib/gmail'
 import type { ActionItem, Artifact, DashboardCard, NotificationRule, Bookmark, UIPreference, Note, Contact } from '@/lib/types'
@@ -430,6 +431,155 @@ const SPAWN_BACKGROUND_JOB_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const CREATE_WATCH_TOOL: Anthropic.Messages.Tool = {
+  name: 'create_watch',
+  description: `Create a watch to monitor for specific emails, senders, keywords, or topics. Use proactively when Jason mentions outreach, waiting for something, following up, or expecting a response. Respond with "Got it, I'll keep an eye out for that."`,
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      watch_type: {
+        type: 'string',
+        enum: ['email_reply', 'keyword', 'sender', 'topic'],
+        description: 'Type of watch: email_reply (waiting for a specific reply), keyword (monitoring for keywords), sender (watching a specific sender), topic (watching for a topic/subject area)',
+      },
+      description: {
+        type: 'string',
+        description: 'What to watch for, in plain language (e.g. "reply from earthquakes about sponsorship", "any email mentioning health inspection")',
+      },
+      keywords: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Keywords to match against incoming emails (optional)',
+      },
+      sender_email: {
+        type: 'string',
+        description: 'Specific email address to watch for (optional)',
+      },
+      sender_domain: {
+        type: 'string',
+        description: 'Domain to watch for (e.g. "sjearthquakes.com") (optional)',
+      },
+      priority: {
+        type: 'string',
+        enum: ['high', 'normal'],
+        description: 'Priority level (default: normal)',
+      },
+    },
+    required: ['watch_type', 'description'],
+  },
+}
+
+const LIST_WATCHES_TOOL: Anthropic.Messages.Tool = {
+  name: 'list_watches',
+  description: 'List all active watches. Use when Jason asks "what are you watching for?" or "what are you monitoring?"',
+  input_schema: {
+    type: 'object' as const,
+    properties: {},
+    required: [],
+  },
+}
+
+const CANCEL_WATCH_TOOL: Anthropic.Messages.Tool = {
+  name: 'cancel_watch',
+  description: 'Cancel/stop an active watch. Sets it to expired.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      watch_id: {
+        type: 'string',
+        description: 'The watch ID to cancel',
+      },
+    },
+    required: ['watch_id'],
+  },
+}
+
+const CHECK_CALENDAR_TOOL: Anthropic.Messages.Tool = {
+  name: 'check_calendar',
+  description: 'View upcoming calendar events. Use when Jason asks about his schedule, meetings, or what\'s coming up.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      start_date: {
+        type: 'string',
+        description: 'Start date (YYYY-MM-DD). Defaults to today.',
+      },
+      end_date: {
+        type: 'string',
+        description: 'End date (YYYY-MM-DD). Defaults to tomorrow.',
+      },
+      query: {
+        type: 'string',
+        description: 'Optional text search to filter events by title, description, or attendee name/email.',
+      },
+    },
+    required: [],
+  },
+}
+
+const FIND_AVAILABILITY_TOOL: Anthropic.Messages.Tool = {
+  name: 'find_availability',
+  description: 'Find open time slots on a given day. Use when Jason asks "when am I free?", "do I have time for...", or needs to schedule something.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      date: {
+        type: 'string',
+        description: 'The date to check (YYYY-MM-DD)',
+      },
+      min_duration_minutes: {
+        type: 'number',
+        description: 'Minimum slot duration in minutes (default: 30)',
+      },
+      start_hour: {
+        type: 'number',
+        description: 'Start of business hours (default: 9, meaning 9am PT)',
+      },
+      end_hour: {
+        type: 'number',
+        description: 'End of business hours (default: 17, meaning 5pm PT)',
+      },
+    },
+    required: ['date'],
+  },
+}
+
+const CREATE_CALENDAR_EVENT_TOOL: Anthropic.Messages.Tool = {
+  name: 'create_calendar_event',
+  description: 'Create a new calendar event. Use when Jason asks to schedule, book, or add something to his calendar.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      title: {
+        type: 'string',
+        description: 'Event title',
+      },
+      start_time: {
+        type: 'string',
+        description: 'Start time in ISO 8601 format (e.g. 2026-03-19T14:00:00-07:00)',
+      },
+      end_time: {
+        type: 'string',
+        description: 'End time in ISO 8601 format (e.g. 2026-03-19T15:00:00-07:00)',
+      },
+      description: {
+        type: 'string',
+        description: 'Optional event description',
+      },
+      location: {
+        type: 'string',
+        description: 'Optional event location',
+      },
+      attendees: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional array of attendee email addresses',
+      },
+    },
+    required: ['title', 'start_time', 'end_time'],
+  },
+}
+
 async function executeWebSearch(query: string): Promise<string> {
   const searchClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
   const response = await searchClient.messages.create({
@@ -439,6 +589,160 @@ async function executeWebSearch(query: string): Promise<string> {
     ...({ extra_body: { provider: { sort: 'price' } } } as any),
   })
   return response.content[0].type === 'text' ? response.content[0].text : 'No results found.'
+}
+
+const JASON_EMAILS_SET = new Set(['jason@hungry.llc', 'jason@demayorestaurantgroup.com', 'jasondemayo@gmail.com'])
+
+async function executeCheckCalendar(input: any): Promise<any> {
+  const account = await getConnectedCalendarAccount()
+  if (!account) return { error: 'No calendar account connected.' }
+
+  const today = new Date().toISOString().split('T')[0]
+  const tomorrow = new Date(Date.now() + 24 * 3600000).toISOString().split('T')[0]
+  const startDate = input.start_date || today
+  const endDate = input.end_date || tomorrow
+
+  const timeMin = `${startDate}T00:00:00-07:00`
+  const timeMax = `${endDate}T23:59:59-07:00`
+
+  const events = await fetchUpcomingEvents(account, timeMin, timeMax)
+
+  // Apply text filter if provided
+  let filtered = events
+  if (input.query) {
+    const q = input.query.toLowerCase()
+    filtered = events.filter(e =>
+      (e.title || '').toLowerCase().includes(q) ||
+      (e.description || '').toLowerCase().includes(q) ||
+      e.attendees.some(a => (a.name || '').toLowerCase().includes(q) || a.email.toLowerCase().includes(q))
+    )
+  }
+
+  if (filtered.length === 0) {
+    return { message: `No events found between ${startDate} and ${endDate}${input.query ? ` matching "${input.query}"` : ''}.`, events: [] }
+  }
+
+  const formatted = filtered.map(e => {
+    const attendeeNames = e.attendees
+      .filter(a => !JASON_EMAILS_SET.has(a.email.toLowerCase()))
+      .map(a => a.name?.split(' ')[0] || a.email)
+    return {
+      title: e.title,
+      start: e.startTime,
+      end: e.endTime,
+      all_day: e.allDay,
+      location: e.location,
+      attendees: attendeeNames,
+      status: e.status,
+    }
+  })
+
+  return { events: formatted, count: formatted.length }
+}
+
+async function executeFindAvailability(input: any): Promise<any> {
+  const account = await getConnectedCalendarAccount()
+  if (!account) return { error: 'No calendar account connected.' }
+
+  const date = input.date
+  const minDuration = input.min_duration_minutes || 30
+  const startHour = input.start_hour ?? 9
+  const endHour = input.end_hour ?? 17
+
+  const timeMin = `${date}T00:00:00-07:00`
+  const timeMax = `${date}T23:59:59-07:00`
+
+  const events = await fetchUpcomingEvents(account, timeMin, timeMax)
+
+  // Build busy blocks (in minutes from midnight PT)
+  const busy: { start: number; end: number; title: string }[] = []
+  for (const e of events) {
+    if (e.status === 'cancelled') continue
+    if (e.allDay) {
+      // All-day events block the whole day
+      busy.push({ start: startHour * 60, end: endHour * 60, title: e.title })
+      continue
+    }
+    if (!e.startTime || !e.endTime) continue
+    const s = new Date(e.startTime)
+    const eEnd = new Date(e.endTime)
+    const sMin = s.getHours() * 60 + s.getMinutes()
+    const eMin = eEnd.getHours() * 60 + eEnd.getMinutes()
+    busy.push({ start: sMin, end: eMin, title: e.title })
+  }
+
+  // Sort by start time
+  busy.sort((a, b) => a.start - b.start)
+
+  // Find gaps
+  const slots: { start: string; end: string; duration_minutes: number }[] = []
+  let cursor = startHour * 60
+
+  for (const block of busy) {
+    if (block.start > cursor) {
+      const gap = block.start - cursor
+      if (gap >= minDuration) {
+        slots.push({
+          start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
+          end: `${String(Math.floor(block.start / 60)).padStart(2, '0')}:${String(block.start % 60).padStart(2, '0')}`,
+          duration_minutes: gap,
+        })
+      }
+    }
+    cursor = Math.max(cursor, block.end)
+  }
+
+  // Final gap after last event
+  if (cursor < endHour * 60) {
+    const gap = endHour * 60 - cursor
+    if (gap >= minDuration) {
+      slots.push({
+        start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
+        end: `${String(Math.floor((endHour * 60) / 60)).padStart(2, '0')}:${String((endHour * 60) % 60).padStart(2, '0')}`,
+        duration_minutes: gap,
+      })
+    }
+  }
+
+  if (slots.length === 0) {
+    return { message: `No available slots on ${date} (${startHour}am-${endHour > 12 ? endHour - 12 + 'pm' : endHour + 'am'}) with at least ${minDuration} minutes.`, slots: [] }
+  }
+
+  return {
+    date,
+    available_slots: slots,
+    total_free_minutes: slots.reduce((sum, s) => sum + s.duration_minutes, 0),
+    meetings_count: events.filter(e => e.status !== 'cancelled').length,
+  }
+}
+
+async function executeCreateCalendarEvent(input: any): Promise<any> {
+  const account = await getConnectedCalendarAccount()
+  if (!account) return { error: 'No calendar account connected.' }
+
+  const event = await createCalendarEvent(account, {
+    title: input.title,
+    startTime: input.start_time,
+    endTime: input.end_time,
+    description: input.description,
+    location: input.location,
+    attendees: input.attendees,
+  })
+
+  const attendeeNames = event.attendees
+    .filter(a => !JASON_EMAILS_SET.has(a.email.toLowerCase()))
+    .map(a => a.name?.split(' ')[0] || a.email)
+
+  return {
+    message: `Event "${event.title}" created.`,
+    event: {
+      title: event.title,
+      start: event.startTime,
+      end: event.endTime,
+      location: event.location,
+      attendees: attendeeNames,
+    },
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -487,7 +791,7 @@ export async function POST(req: NextRequest) {
     : undefined
 
   // RAG retrieval + action items + artifacts + all projects + training context in parallel
-  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult, dashboardCardsResult, notificationRulesResult, uiPreferencesResult, trainingContext, notesResult, contactsResult, relevantDecisions] = await Promise.all([
+  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult, dashboardCardsResult, notificationRulesResult, uiPreferencesResult, trainingContext, notesResult, contactsResult, relevantDecisions, awaitingRepliesResult, activeWatchesResult, calendarEventsResult] = await Promise.all([
     isSubstantiveMessage ? retrieveRelevantChunks(message, project_id, 8, 0.7, queryEmbedding).catch(e => { console.error('RAG retrieval failed:', e.message); return [] }) : Promise.resolve([]),
     project_id ? getPinnedDocuments(project_id) : Promise.resolve([]),
     isSubstantiveMessage ? getRelevantMemories(message) : Promise.resolve([]),
@@ -512,6 +816,26 @@ export async function POST(req: NextRequest) {
     supabaseAdmin.from('notes').select('*').or('expires_at.is.null,expires_at.gt.' + new Date().toISOString()).order('created_at', { ascending: false }),
     supabaseAdmin.from('contacts').select('*').order('name'),
     isSubstantiveMessage ? retrieveRelevantDecisions(message, 5, 0.7, queryEmbedding).catch(e => { console.error('Decision retrieval failed:', e.message); return [] }) : Promise.resolve([]),
+    supabaseAdmin
+      .from('email_threads')
+      .select('last_sender_email, subject, last_message_date')
+      .eq('direction', 'outbound')
+      .eq('response_detected', false)
+      .gte('last_message_date', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
+      .order('last_message_date', { ascending: false }),
+    supabaseAdmin
+      .from('conversation_watches')
+      .select('id, watch_type, context, priority, created_at, match_criteria')
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(20),
+    supabaseAdmin
+      .from('calendar_events')
+      .select('title, start_time, end_time, all_day, location, attendees, organizer_email, status')
+      .gte('start_time', new Date().toISOString())
+      .lte('start_time', new Date(Date.now() + 48 * 3600000).toISOString())
+      .order('start_time', { ascending: true }),
   ])
 
   const actionItems: ActionItem[] = actionItemsResult.data || []
@@ -521,6 +845,13 @@ export async function POST(req: NextRequest) {
   const dashboardCards: DashboardCard[] = dashboardCardsResult.data || []
   const notificationRules: NotificationRule[] = notificationRulesResult.data || []
   const uiPreferences: UIPreference[] = uiPreferencesResult.data || []
+  const awaitingReplies = ((awaitingRepliesResult as any).data || []).map((r: any) => ({
+    recipient_email: r.last_sender_email,
+    subject: r.subject,
+    last_message_date: r.last_message_date,
+  }))
+  const activeWatches = (activeWatchesResult as any).data || []
+  const calendarEvents: CalendarEventEntry[] = (calendarEventsResult as any).data || []
 
   // Build context
   const context = buildContext(chunks, pinnedDocs, memories, contextChunks)
@@ -541,6 +872,9 @@ export async function POST(req: NextRequest) {
     notes: (notesResult.data || []) as Note[],
     contacts: (contactsResult.data || []) as Contact[],
     decisions: relevantDecisions.length > 0 ? relevantDecisions : undefined,
+    awaitingReplies: awaitingReplies.length > 0 ? awaitingReplies : undefined,
+    activeWatches: activeWatches.length > 0 ? activeWatches : undefined,
+    calendarEvents: calendarEvents.length > 0 ? calendarEvents : undefined,
   })
 
   // Build messages array for Claude
@@ -567,7 +901,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL, CREATE_WATCH_TOOL, LIST_WATCHES_TOOL, CANCEL_WATCH_TOOL, CHECK_CALENDAR_TOOL, FIND_AVAILABILITY_TOOL, CREATE_CALENDAR_EVENT_TOOL],
             ...({ extra_body: { models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'], provider: { sort: 'latency' } } } as any),
           })
 
@@ -628,6 +962,9 @@ export async function POST(req: NextRequest) {
                   search_web: `Searching the web`,
                   manage_action_items: 'Managing action items',
                   spawn_background_job: 'Starting background research',
+                  create_watch: 'Setting up watch',
+                  list_watches: 'Checking watches',
+                  cancel_watch: 'Canceling watch',
                 }
                 const statusLabel = toolStatusLabels[currentToolUse.name] || 'Working'
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool_status: statusLabel })}\n\n`))
@@ -650,6 +987,73 @@ export async function POST(req: NextRequest) {
                 } else if (currentToolUse.name === 'search_gmail') {
                   try {
                     const emails = await searchEmails(toolInput.query, toolInput.max_results || 10)
+
+                    // Enrich results with awaiting-reply context
+                    const { data: outboundThreads } = await supabaseAdmin
+                      .from('email_threads')
+                      .select('gmail_thread_id, last_sender_email, subject, last_message_date')
+                      .eq('direction', 'outbound')
+                      .eq('response_detected', false)
+                      .gte('last_message_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+
+                    if (outboundThreads && outboundThreads.length > 0) {
+                      // Common words to strip for keyword matching
+                      const stopWords = new Set(['re:', 'fwd:', 'fw:', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'between', 'through', 'after', 'before', 'above', 'below', 'and', 'but', 'or', 'not', 'no', 'so', 'if', 'then', 'than', 'that', 'this', 'it', 'its', 'my', 'your', 'his', 'her', 'our', 'their', 'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him', 'us', 'them', 'up', 'out', 'just', 'also', 'very', 'all', 'any', 'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'same', 'new', 'old', 'hi', 'hello', 'hey', 'thanks', 'thank', 'please', 'regards'])
+
+                      const extractKeywords = (text: string): Set<string> => {
+                        return new Set(
+                          text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+                            .filter(w => w.length > 2 && !stopWords.has(w))
+                        )
+                      }
+
+                      const extractDomain = (email: string): string => {
+                        const match = email.match(/@([^>]+)/)
+                        return match ? match[1].toLowerCase() : ''
+                      }
+
+                      // Build lookup data for outbound threads
+                      const outboundData = outboundThreads.map(t => ({
+                        ...t,
+                        recipientDomain: extractDomain(t.last_sender_email || ''),
+                        keywords: extractKeywords(t.subject || ''),
+                      }))
+
+                      for (const email of emails) {
+                        const senderDomain = extractDomain(email.from || '')
+                        const emailKeywords = extractKeywords(`${email.subject || ''} ${email.snippet || ''}`)
+
+                        for (const thread of outboundData) {
+                          let matched = false
+
+                          // Check 1: threadId match
+                          if (email.threadId && email.threadId === thread.gmail_thread_id) {
+                            matched = true
+                          }
+
+                          // Check 2: sender domain matches outbound recipient domain
+                          if (!matched && senderDomain && thread.recipientDomain && senderDomain === thread.recipientDomain) {
+                            matched = true
+                          }
+
+                          // Check 3: keyword overlap (at least 2 significant words)
+                          if (!matched && thread.keywords.size > 0) {
+                            let overlap = 0
+                            for (const kw of thread.keywords) {
+                              if (emailKeywords.has(kw)) overlap++
+                            }
+                            if (overlap >= 2) matched = true
+                          }
+
+                          if (matched) {
+                            const sentDate = new Date(thread.last_message_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
+                            email.snippet += `\n[CONTEXT: This appears to be related to your outbound email about "${thread.subject}" sent on ${sentDate}. You were waiting for a reply on this.]`
+                            break // Only annotate with the first match
+                          }
+                        }
+                      }
+                    }
+
                     toolResult = { status: 'ok', result_count: emails.length, emails }
                   } catch (e: any) {
                     toolResult = { status: 'error', message: e.message }
@@ -771,6 +1175,24 @@ export async function POST(req: NextRequest) {
                       job_id: toolResult.job_id,
                     },
                   })}\n\n`))
+                } else if (currentToolUse.name === 'create_watch') {
+                  toolResult = await executeCreateWatch(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ watch: { operation: 'create', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'list_watches') {
+                  toolResult = await executeListWatches()
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ watch: { operation: 'list', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'cancel_watch') {
+                  toolResult = await executeCancelWatch(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ watch: { operation: 'cancel', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'check_calendar') {
+                  toolResult = await executeCheckCalendar(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ calendar: { operation: 'check', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'find_availability') {
+                  toolResult = await executeFindAvailability(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ calendar: { operation: 'availability', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'create_calendar_event') {
+                  toolResult = await executeCreateCalendarEvent(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ calendar: { operation: 'create', result: toolResult } })}\n\n`))
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
@@ -1703,6 +2125,9 @@ async function summarizeSession(sessionId: string, convId: string) {
 
   // Phase 3: Detect SOPs - check if Jason explained a process step-by-step
   detectAndTrackProcesses(convId, transcript, summary).catch(e => console.error('SOP detection failed:', e))
+
+  // Extract watches from conversation (things Jason is waiting for or tracking)
+  extractWatchesFromSession(convId, transcript).catch(e => console.error('Watch extraction failed:', e))
 }
 
 async function extractNotepadEntriesFromSummary(summary: string) {
@@ -1839,7 +2264,7 @@ Return {"commitments": []} if none found.`,
 
 async function extractDecisionsFromSession(sessionId: string, convId: string, transcript: string) {
   const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
-  const { generateEmbedding } = await import('@/lib/voyage')
+  const { generateEmbedding } = await import('@/lib/embeddings')
 
   const decisionSchema = {
     type: 'object',
@@ -1924,6 +2349,177 @@ Return {"decisions": []} if none found.`,
         .then(embedding => supabaseAdmin.from('decisions').update({ embedding }).eq('id', inserted.id))
         .catch(e => console.error('Decision embedding failed:', e))
     }
+  }
+}
+
+async function extractWatchesFromSession(convId: string, transcript: string) {
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+
+  const watchSchema = {
+    type: 'object',
+    properties: {
+      watches: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            watch_type: { type: 'string', enum: ['email_reply', 'keyword', 'sender', 'topic'] },
+            description: { type: 'string' },
+            keywords: { type: 'array', items: { type: 'string' } },
+            sender_email: { type: ['string', 'null'] },
+            sender_domain: { type: ['string', 'null'] },
+            priority: { type: 'string', enum: ['high', 'normal'] },
+            semantic_context: { type: 'string' },
+          },
+          required: ['watch_type', 'description', 'keywords', 'sender_email', 'sender_domain', 'priority', 'semantic_context'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['watches'],
+    additionalProperties: false,
+  }
+
+  const response = await anthropicClient.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    max_tokens: 600,
+    system: `Review this conversation and identify things Jason is waiting for, tracking, or monitoring. Look for:
+- Outreach he made ("I reached out to...", "I emailed...", "I sent that to...")
+- Things he's waiting on ("waiting to hear back", "let's see if they respond", "should hear back soon")
+- Pending items from others ("they said they'd send it", "she's supposed to get back to me")
+- Decisions pending external input ("depends on what the city says", "once we get the numbers")
+- Anything where a future event or response matters to Jason
+
+For each, return:
+- watch_type: "email_reply" if waiting for an email response, "sender" if monitoring a specific person, "keyword" if monitoring a topic, "topic" for general monitoring
+- description: what Jason is waiting for, in plain language
+- keywords: 3-8 relevant terms (org names, people, topics, locations)
+- sender_email: specific email if known, null otherwise
+- sender_domain: org domain if known (e.g. "sjearthquakes.com"), null otherwise
+- priority: "high" if time-sensitive or important, "normal" otherwise
+- semantic_context: rich context about what this is and why it matters, include project/topic it relates to
+
+Return {"watches": []} if nothing found. Don't extract watches for vague or trivial items.`,
+    messages: [{ role: 'user', content: transcript.slice(0, 6000) }],
+    ...({
+      extra_body: {
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: watchSchema } },
+      },
+    } as any),
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  let parsed: any
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = parseJSON(text)
+  }
+  if (!parsed.watches || parsed.watches.length === 0) return
+
+  // Load existing active watches for deduplication
+  const { data: existingWatches } = await supabaseAdmin
+    .from('conversation_watches')
+    .select('*')
+    .eq('status', 'active')
+    .gt('expires_at', new Date().toISOString())
+
+  // Load active notification rules to avoid overlap
+  const { data: notifRules } = await supabaseAdmin
+    .from('notification_rules')
+    .select('match_type, match_value')
+    .eq('is_active', true)
+
+  const activeWatches = existingWatches || []
+  const activeRules = notifRules || []
+
+  let createdCount = 0
+
+  for (const w of parsed.watches) {
+    if (!w.description || !w.keywords || w.keywords.length === 0) continue
+
+    const newKeywords = (w.keywords as string[]).map((k: string) => k.toLowerCase())
+
+    // Dedup: check if notification_rules already cover this sender/keyword
+    const coveredByRule = activeRules.some((rule: any) => {
+      if (rule.match_type === 'sender' && w.sender_email && rule.match_value?.toLowerCase() === w.sender_email.toLowerCase()) return true
+      if (rule.match_type === 'sender' && w.sender_domain && rule.match_value?.toLowerCase()?.includes(w.sender_domain.toLowerCase())) return true
+      if (rule.match_type === 'keyword' && newKeywords.some((k: string) => rule.match_value?.toLowerCase()?.includes(k))) return true
+      return false
+    })
+    if (coveredByRule) continue
+
+    // Dedup: check existing watches for same sender_domain + 2+ overlapping keywords
+    const isDuplicate = activeWatches.some((existing: any) => {
+      const criteria = existing.match_criteria || {}
+      const existingKeywords = (criteria.keywords || []).map((k: string) => k.toLowerCase())
+
+      // Same sender_domain + 2+ keyword overlap
+      if (w.sender_domain && criteria.sender_domain &&
+          w.sender_domain.toLowerCase() === criteria.sender_domain.toLowerCase()) {
+        const overlap = newKeywords.filter((k: string) => existingKeywords.includes(k)).length
+        if (overlap >= 2) return true
+      }
+
+      // 50%+ keyword overlap (proxy for similar semantic_context)
+      if (existingKeywords.length > 0 && newKeywords.length > 0) {
+        const overlap = newKeywords.filter((k: string) => existingKeywords.includes(k)).length
+        const overlapRatio = overlap / Math.min(newKeywords.length, existingKeywords.length)
+        if (overlapRatio >= 0.5) return true
+      }
+
+      return false
+    })
+    if (isDuplicate) continue
+
+    // Create the watch
+    await supabaseAdmin.from('conversation_watches').insert({
+      conversation_id: convId,
+      watch_type: w.watch_type,
+      match_criteria: {
+        thread_id: null,
+        sender_email: w.sender_email || null,
+        sender_domain: w.sender_domain || null,
+        keywords: w.keywords,
+        semantic_context: w.semantic_context,
+      },
+      context: w.description,
+      priority: w.priority || 'normal',
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    createdCount++
+  }
+
+  // Store new watch descriptions on the session for greeting injection
+  if (createdCount > 0) {
+    const watchDescriptions = parsed.watches
+      .slice(0, createdCount)
+      .map((w: any) => w.description)
+      .filter(Boolean)
+
+    // Store in user_state so the session greeting can pick it up
+    const { data: existing } = await supabaseAdmin
+      .from('user_state')
+      .select('value')
+      .eq('key', 'recent_auto_watches')
+      .single()
+
+    const existingWatchList = existing?.value?.watches || []
+    await supabaseAdmin
+      .from('user_state')
+      .upsert({
+        key: 'recent_auto_watches',
+        value: {
+          watches: [...watchDescriptions, ...existingWatchList].slice(0, 10),
+          updated_at: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' })
+
+    console.log(`[watch-extraction] Created ${createdCount} watches from session in conversation ${convId}`)
   }
 }
 
@@ -2297,4 +2893,87 @@ Then write a brief message to Jason saying something like: "I noticed you've exp
 
     console.log(`SOP detection: first instance of process "${parsed.process_name}" recorded`)
   }
+}
+
+// --- Watch management tool handlers ---
+
+async function executeCreateWatch(input: {
+  watch_type: string
+  description: string
+  keywords?: string[]
+  sender_email?: string
+  sender_domain?: string
+  priority?: string
+}): Promise<{ status: string; watch?: any; message?: string }> {
+  const matchCriteria: Record<string, any> = {
+    semantic_context: input.description,
+  }
+
+  if (input.keywords && input.keywords.length > 0) {
+    matchCriteria.keywords = input.keywords
+  }
+  if (input.sender_email) {
+    matchCriteria.sender_email = input.sender_email.toLowerCase()
+  }
+  if (input.sender_domain) {
+    matchCriteria.sender_domain = input.sender_domain.toLowerCase()
+  }
+  // Extract domain from sender_email if domain not provided
+  if (input.sender_email && !input.sender_domain) {
+    const domainMatch = input.sender_email.match(/@(.+)/)
+    if (domainMatch) matchCriteria.sender_domain = domainMatch[1].toLowerCase()
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('conversation_watches')
+    .insert({
+      watch_type: input.watch_type,
+      match_criteria: matchCriteria,
+      context: input.description,
+      priority: input.priority || 'normal',
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    .select()
+    .single()
+
+  if (error) return { status: 'error', message: error.message }
+  return { status: 'created', watch: data, message: `Watch created: monitoring for ${input.description}` }
+}
+
+async function executeListWatches(): Promise<{ status: string; watches?: any[]; message?: string }> {
+  const { data, error } = await supabaseAdmin
+    .from('conversation_watches')
+    .select('*')
+    .eq('status', 'active')
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (error) return { status: 'error', message: error.message }
+
+  const watches = (data || []).map(w => ({
+    id: w.id,
+    type: w.watch_type,
+    context: w.context,
+    priority: w.priority,
+    created_at: w.created_at,
+    expires_at: w.expires_at,
+    keywords: w.match_criteria?.keywords || [],
+    sender_email: w.match_criteria?.sender_email || null,
+    sender_domain: w.match_criteria?.sender_domain || null,
+  }))
+
+  return { status: 'ok', watches }
+}
+
+async function executeCancelWatch(input: { watch_id: string }): Promise<{ status: string; message?: string }> {
+  if (!input.watch_id) return { status: 'error', message: 'watch_id is required' }
+
+  const { error } = await supabaseAdmin
+    .from('conversation_watches')
+    .update({ status: 'expired' })
+    .eq('id', input.watch_id)
+
+  if (error) return { status: 'error', message: error.message }
+  return { status: 'cancelled', message: 'Watch cancelled' }
 }

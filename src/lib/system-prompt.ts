@@ -1,5 +1,163 @@
 import type { ActionItem, Artifact, Memory, DashboardCard, NotificationRule, UIPreference, Note, Contact } from './types'
 
+const JASON_EMAILS = ['jason@hungry.llc', 'jason@demayorestaurantgroup.com', 'jasondemayo@gmail.com']
+
+export interface CalendarEventEntry {
+  title: string
+  start_time: string | null
+  end_time: string | null
+  all_day: boolean
+  location: string | null
+  attendees: { email: string; name: string | null; responseStatus: string }[]
+  organizer_email: string | null
+  status: string
+}
+
+interface AttendeeContext {
+  contactName?: string
+  openActionItemCount?: number
+}
+
+function formatCalendarSection(
+  events: CalendarEventEntry[],
+  contacts?: Contact[],
+  actionItems?: ActionItem[],
+): string {
+  if (!events || events.length === 0) return ''
+
+  // Build lookup maps for contacts and action items by email
+  const contactByEmail = new Map<string, Contact>()
+  if (contacts) {
+    for (const c of contacts) {
+      if (c.email) contactByEmail.set(c.email.toLowerCase(), c)
+    }
+  }
+
+  // Count open action items that mention each contact name (simple heuristic)
+  const actionItemCountByName = new Map<string, number>()
+  if (actionItems && contacts) {
+    for (const item of actionItems) {
+      const text = `${item.title} ${item.description || ''}`.toLowerCase()
+      for (const c of contacts) {
+        const firstName = c.name.split(' ')[0].toLowerCase()
+        if (firstName.length >= 3 && text.includes(firstName)) {
+          actionItemCountByName.set(c.name, (actionItemCountByName.get(c.name) || 0) + 1)
+        }
+      }
+    }
+  }
+
+  // Determine "today" and "tomorrow" in Pacific time
+  const nowPT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const todayStr = `${nowPT.getFullYear()}-${String(nowPT.getMonth() + 1).padStart(2, '0')}-${String(nowPT.getDate()).padStart(2, '0')}`
+  const tomorrowDate = new Date(nowPT)
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrowStr = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDate.getDate()).padStart(2, '0')}`
+
+  const totalEvents = events.length
+  const shouldTruncate = totalEvents > 12
+  const eventsToShow = shouldTruncate ? events.slice(0, 8) : events
+
+  // Split into all-day and timed, then group by day
+  const allDay: CalendarEventEntry[] = []
+  const timed: CalendarEventEntry[] = []
+  for (const evt of eventsToShow) {
+    if (evt.all_day) {
+      allDay.push(evt)
+    } else {
+      timed.push(evt)
+    }
+  }
+
+  function getDayLabel(dateStr: string | null): string {
+    if (!dateStr) return 'Today'
+    const date = dateStr.slice(0, 10)
+    if (date === todayStr) return 'Today'
+    if (date === tomorrowStr) return 'Tomorrow'
+    // Fallback: format the date
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
+  }
+
+  function formatTime(iso: string): string {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).toLowerCase()
+  }
+
+  function formatAttendees(attendees: CalendarEventEntry['attendees']): string {
+    const names: string[] = []
+    for (const a of attendees) {
+      if (JASON_EMAILS.includes(a.email.toLowerCase())) continue
+      const contact = contactByEmail.get(a.email.toLowerCase())
+      let firstName = contact
+        ? contact.name.split(' ')[0]
+        : (a.name ? a.name.split(' ')[0] : a.email.split('@')[0])
+      // Check for action item count
+      const fullName = contact?.name
+      if (fullName && actionItemCountByName.has(fullName)) {
+        firstName += ` (${actionItemCountByName.get(fullName)} open action items)`
+      } else if (contact) {
+        firstName += ' [contact]'
+      }
+      names.push(firstName)
+    }
+    return names.length > 0 ? names.join(', ') : ''
+  }
+
+  function formatEvent(evt: CalendarEventEntry): string {
+    if (evt.all_day) {
+      let line = `All Day: ${evt.title}`
+      const attendeeStr = formatAttendees(evt.attendees)
+      if (attendeeStr) line += ` (with ${attendeeStr})`
+      if (evt.location) line += ` @ ${evt.location}`
+      return `- ${line}`
+    }
+    const start = evt.start_time ? formatTime(evt.start_time) : '?'
+    const end = evt.end_time ? formatTime(evt.end_time) : '?'
+    let line = `${start}-${end} ${evt.title}`
+    const attendeeStr = formatAttendees(evt.attendees)
+    if (attendeeStr) line += ` (with ${attendeeStr})`
+    if (evt.location) line += ` @ ${evt.location}`
+    return `- ${line}`
+  }
+
+  // Group events by day
+  const dayGroups = new Map<string, CalendarEventEntry[]>()
+  for (const evt of allDay) {
+    const label = getDayLabel(evt.start_time)
+    if (!dayGroups.has(label)) dayGroups.set(label, [])
+    dayGroups.get(label)!.push(evt)
+  }
+  for (const evt of timed) {
+    const label = getDayLabel(evt.start_time)
+    if (!dayGroups.has(label)) dayGroups.set(label, [])
+    dayGroups.get(label)!.push(evt)
+  }
+
+  // Ensure "Today" comes first, then "Tomorrow", then others
+  const orderedLabels = [...dayGroups.keys()].sort((a, b) => {
+    if (a === 'Today') return -1
+    if (b === 'Today') return 1
+    if (a === 'Tomorrow') return -1
+    if (b === 'Tomorrow') return 1
+    return 0
+  })
+
+  const lines: string[] = []
+  for (const label of orderedLabels) {
+    lines.push(`**${label}**`)
+    for (const evt of dayGroups.get(label)!) {
+      lines.push(formatEvent(evt))
+    }
+  }
+
+  if (shouldTruncate) {
+    lines.push(`\n...and ${totalEvents - 8} more events in the next 48 hours`)
+  }
+
+  return `\n\n--- Upcoming Calendar ---\n${lines.join('\n')}`
+}
+
 export const BASE_SYSTEM_PROMPT = `You are Crosby, the private AI workspace for Jason DeMayo. Jason is CEO of DeMayo Restaurant Group (DRG), operating 8 Wingstop franchise locations in California, and Hungry Hospitality Group (HHG), operating 2 Mr. Pickle's franchise locations.
 
 Wingstop stores:
@@ -30,6 +188,21 @@ interface Project {
   description: string | null
 }
 
+interface AwaitingReply {
+  recipient_email: string
+  subject: string
+  last_message_date: string
+}
+
+interface ActiveWatch {
+  id: string
+  watch_type: string
+  context: string
+  priority: string
+  created_at: string
+  match_criteria: { keywords?: string[] }
+}
+
 export function buildSystemPrompt(options?: {
   projectSystemPrompt?: string | null
   memories?: Memory[]
@@ -47,6 +220,9 @@ export function buildSystemPrompt(options?: {
   notes?: Note[]
   contacts?: Contact[]
   decisions?: { decision_text: string; context: string | null; alternatives_considered: string | null; decided_at: string }[]
+  awaitingReplies?: AwaitingReply[]
+  activeWatches?: ActiveWatch[]
+  calendarEvents?: CalendarEventEntry[]
 }): string {
   const now = new Date()
   const pacificTime = now.toLocaleString('en-US', {
@@ -163,6 +339,44 @@ DELEGATION STYLE:
 - CROSS-FEATURE: If multiple action items cluster around one topic, consider suggesting a project or dashboard card to track it. If completing an item required contacting someone, offer to draft the email.`)
   }
 
+  // Calendar events (next 48 hours)
+  if (options?.calendarEvents && options.calendarEvents.length > 0) {
+    const calSection = formatCalendarSection(options.calendarEvents, options.contacts, options.actionItems)
+    if (calSection) parts.push(calSection)
+  }
+
+  if (options?.awaitingReplies && options.awaitingReplies.length > 0) {
+    const now = new Date()
+    const replyLines = options.awaitingReplies.map(r => {
+      const sentDate = new Date(r.last_message_date)
+      const daysAgo = Math.floor((now.getTime() - sentDate.getTime()) / (1000 * 60 * 60 * 24))
+      const dateStr = sentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
+      return `- You emailed ${r.recipient_email} about "${r.subject}" on ${dateStr} (${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago) - no reply yet`
+    })
+    parts.push(`\n\n--- Awaiting Replies ---
+These are outbound emails Jason sent that haven't gotten a reply yet. When you encounter ANY information related to these (in email search results, documents, or conversation), proactively flag the connection. Don't just list results neutrally - tell Jason "this is the reply to your outreach about X" or "this might be related to that email you sent about Y."
+
+${replyLines.join('\n')}`)
+  }
+
+  if (options?.activeWatches && options.activeWatches.length > 0) {
+    const watchLines = options.activeWatches.map(w => {
+      const age = Math.floor((new Date().getTime() - new Date(w.created_at).getTime()) / (1000 * 60 * 60 * 24))
+      const keywords = w.match_criteria?.keywords?.join(', ') || ''
+      let line = `- [${w.watch_type}] Watching for: ${w.context} (${age} day${age !== 1 ? 's' : ''} old, priority: ${w.priority})`
+      if (keywords) line += `\n  Keywords: ${keywords}`
+      return line
+    })
+    parts.push(`\n\n--- Active Watches ---
+You are monitoring these things for Jason. When you encounter related information in any context (emails, documents, conversation), flag it immediately and explain the connection. Don't be subtle - lead with "This is the [thing] you were waiting for" or "Heads up, this is related to [watch context]."
+
+When Jason mentions outreach, waiting for something, following up, or expecting a response, proactively suggest creating a watch: "Want me to keep an eye out for that?"
+
+Use create_watch to set up new watches, list_watches to show what's active, and cancel_watch to stop monitoring.
+
+${watchLines.join('\n')}`)
+  }
+
   if (options?.artifacts && options.artifacts.length > 0) {
     const activeId = options.activeArtifactId
     const artifactLines = options.artifacts.map((a) => {
@@ -267,8 +481,10 @@ Use manage_preferences to set/get UI preferences. Supported keys: sidebar_collap
 
 export function buildBriefingPrompt(data: {
   salesData: { store_number: string; store_name: string; brand: string; net_sales: number }[]
-  actionItems: { title: string; status: string; priority: string; due_date: string | null }[]
+  actionItems: { title: string; status: string; priority: string; due_date: string | null; description?: string | null }[]
   emailScanStats: { account: string; emails_processed: number; action_items_found: number; last_scanned_at: string }[]
+  calendarEvents?: CalendarEventEntry[]
+  contacts?: { name: string; email: string | null }[]
 }, preferences: string[]): string {
   const parts: string[] = []
 
@@ -315,6 +531,38 @@ ${preferences.map(p => `- ${p}`).join('\n')}`)
     const total = data.emailScanStats.reduce((sum, s) => sum + s.emails_processed, 0)
     const items = data.emailScanStats.reduce((sum, s) => sum + s.action_items_found, 0)
     parts.push(`\n\nEmail Activity (last scan): ${total} emails processed, ${items} action items extracted.`)
+  }
+
+  if (data.calendarEvents && data.calendarEvents.length > 0) {
+    // Pass contacts and action items for cross-referencing annotations
+    const contactsAsContact = (data.contacts || []).map(c => ({ ...c, id: '', phone: null, role: null, organization: null, notes: null, created_at: '', updated_at: '' })) as Contact[]
+    const itemsAsActionItem = data.actionItems.map(i => ({ ...i, id: '', description: i.description || null, source: null, source_id: null, source_snippet: null, created_at: '', updated_at: '', snoozed_until: null, confidence: null, last_surfaced_at: null, agent_id: '', dismissal_reason: null, last_nudged_at: null })) as ActionItem[]
+    const calSection = formatCalendarSection(data.calendarEvents, contactsAsContact, itemsAsActionItem)
+    if (calSection) parts.push(calSection)
+
+    // Calendar analysis instructions for the briefing
+    const todayEvents = data.calendarEvents.filter(e => {
+      if (!e.start_time) return false
+      const nowPT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const todayStr = `${nowPT.getFullYear()}-${String(nowPT.getMonth() + 1).padStart(2, '0')}-${String(nowPT.getDate()).padStart(2, '0')}`
+      return e.start_time.startsWith(todayStr)
+    })
+
+    const tomorrowEvents = data.calendarEvents.filter(e => {
+      if (!e.start_time) return false
+      const nowPT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+      const tomorrowDate = new Date(nowPT)
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+      const tomorrowStr = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDate.getDate()).padStart(2, '0')}`
+      return e.start_time.startsWith(tomorrowStr)
+    })
+
+    parts.push(`\n\nCalendar Analysis (include in briefing):
+- Total meetings today: ${todayEvents.length}${todayEvents.length > 0 ? `. First meeting: ${todayEvents[0].title} at ${todayEvents[0].start_time}` : ''}
+- Look for back-to-back stretches: 2+ meetings with no gap between them. Flag these so Jason can plan.
+- Cross-reference attendees with the action items listed above. If Jason is meeting someone who has open action items, call that out specifically (e.g. "You're meeting Roger at 2pm - you have 2 open items with him").
+- If today has 4+ meetings, identify gaps between meetings where Jason could tackle action items.
+${tomorrowEvents.length > 0 ? `- Tomorrow heads-up: first meeting is "${tomorrowEvents[0].title}" at ${tomorrowEvents[0].start_time}` : '- No meetings on tomorrow\'s calendar yet.'}`)
   }
 
   return parts.join('')

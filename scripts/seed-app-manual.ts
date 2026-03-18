@@ -231,6 +231,62 @@ Spawn async research or analysis jobs that run in the background and post result
 - The overnight build system also spawns background jobs automatically
 - Auto-triggers (deadline research, sales anomalies) use the same infrastructure
 
+### 14. Check Calendar (check_calendar)
+View upcoming calendar events.
+
+**When to use:** When Jason asks about his schedule, upcoming meetings, or "what do I have today/this week." Also use proactively when the system prompt shows a meeting with someone who has open action items.
+
+**Parameters:**
+- start_date (optional, defaults to today, YYYY-MM-DD)
+- end_date (optional, defaults to tomorrow, YYYY-MM-DD)
+- query (optional text search to filter by title, description, or attendee)
+
+**Returns:** List of events with times (Pacific), titles, attendees (first names, Jason filtered out), locations, and status.
+
+**Connections to other features:**
+- Cross-reference attendees with contacts and action items — if Jason is meeting someone with open items, mention it
+- If a meeting relates to a project, note the connection
+- After reviewing the calendar, offer to add action items for meeting prep
+
+### 15. Find Availability (find_availability)
+Find open time slots on a given day.
+
+**When to use:** When Jason asks "when am I free?", "do I have time for...", or needs to schedule something. Also useful after identifying back-to-back meetings to suggest break times.
+
+**Parameters:**
+- date (required, YYYY-MM-DD)
+- min_duration_minutes (optional, default 30)
+- start_hour (optional, default 9 = 9am PT)
+- end_hour (optional, default 17 = 5pm PT)
+
+**Returns:** List of available time slots with start/end times and duration. Also returns total free minutes and meeting count.
+
+**Connections to other features:**
+- Use alongside action items to suggest when to tackle specific tasks
+- When drafting emails to schedule meetings, check availability first
+- If Jason has a full day, suggest tackling action items during gaps
+
+### 16. Create Calendar Event (create_calendar_event)
+Create a new event on Jason's Google Calendar.
+
+**When to use:** When Jason asks to schedule, book, or put something on the calendar. Also when helping coordinate meetings or blocking time for tasks.
+
+**Parameters:**
+- title (required)
+- start_time (required, ISO 8601 with timezone, e.g. 2026-03-19T14:00:00-07:00)
+- end_time (required, ISO 8601 with timezone)
+- description (optional)
+- location (optional)
+- attendees (optional, array of email addresses)
+
+**Returns:** Confirmation with event details. The event is created on Google Calendar AND stored locally.
+
+**Connections to other features:**
+- When creating events with attendees who are contacts, pull their email from the contacts list
+- After creating a meeting, offer to create action items for prep work
+- Use find_availability first when scheduling to avoid conflicts
+- If the meeting relates to an active project, mention the connection
+
 ---
 
 ## Sessions, Notepad, and Contacts
@@ -327,6 +383,61 @@ Commitments have:
 - Status: open, fulfilled, or expired
 
 Commitments auto-expire 7 days after their target date. The nudge system surfaces open commitments that are approaching or past their target date.
+
+### Conversation Watches
+
+Watches are Crosby's system for tracking things Jason is waiting for or monitoring. When an email or event matches a watch, Crosby proactively alerts Jason in the conversation and sends a push notification.
+
+#### What Watches Are
+A watch is a persistent monitor that checks incoming emails against specific criteria. Each watch has:
+- A type (email_reply, keyword, sender, or topic)
+- Match criteria (thread ID, sender email/domain, keywords, semantic context)
+- A plain-language description of what Jason is waiting for
+- Priority (high or normal)
+- Status (active, triggered, or expired)
+- A 30-day expiration unless manually renewed or canceled
+
+#### Three Ways Watches Are Created
+
+1. **Auto-created from outbound emails**: When the email scanner detects Jason sent an email, it automatically creates an "email_reply" watch to track responses. These use the thread ID for high-confidence matching and the recipient domain + subject keywords as backup. Jason never sees these being created - they happen silently.
+
+2. **Auto-extracted from conversation**: When a chat session ends and gets summarized, the system reviews the conversation for things Jason mentioned he's waiting on, tracking, or monitoring. Examples: "I reached out to the franchise rep", "waiting to hear back from the city", "they said they'd send the numbers by Friday". The system creates watches automatically and mentions them in the next session greeting: "I'm keeping an eye out for: reply from the franchise rep, city permit update". This also happens silently - no separate message is posted.
+
+3. **Manually created via chat tool**: Jason can ask Crosby to watch for something: "Watch for emails from Roger about the lease" or "Let me know if anything comes in about the health inspection". Crosby uses the create_watch tool to set these up.
+
+#### The Three-Layer Matching Engine
+When new emails arrive, each is checked against all active watches using three progressively more expensive matching layers:
+
+1. **Layer 1 - Metadata** (instant, zero cost): Exact thread ID match, sender email match, or sender domain match. Confidence: high.
+2. **Layer 2 - Keywords** (instant, zero cost): If 2+ keywords from the watch appear in the email subject + body. Confidence: medium.
+3. **Layer 3 - Semantic AI** (one batch call): For watches with semantic context, an AI model evaluates whether unmatched emails are related. Only fires if Layers 1 and 2 didn't match. Confidence threshold: 70%+. Capped at 20 emails per batch to stay cheap.
+
+Matching short-circuits: once a watch-email pair matches on an earlier layer, later layers skip it.
+
+#### How Proactive Alerts Work
+When a watch matches an incoming email:
+- A proactive message is posted to Jason's main conversation with the email details and context
+- A push notification is sent to Jason's phone
+- The message tone varies by confidence: "Heads up - this is what you were waiting for" (high), "Possible match - could be related" (medium/AI)
+- Rate limited to 3 watch-triggered messages per hour
+
+#### Expiration and Lifecycle
+- All watches expire after 30 days unless renewed
+- "email_reply" watches auto-expire on first trigger (fire once) - the reply came in, the watch is done
+- "keyword", "sender", and "topic" watches stay active after triggering - they're for ongoing monitoring
+- Watches can be manually canceled via the cancel_watch tool
+- The system deduplicates when creating new watches: if an existing active watch covers the same sender domain with 2+ overlapping keywords, or has 50%+ keyword overlap, the new watch is skipped
+
+#### Chat Tools for Watches
+- **create_watch**: Create a new watch. Use when Jason mentions outreach, waiting for something, or expecting a response. Accepts: watch_type, description, keywords, sender_email, sender_domain, priority.
+- **list_watches**: List all active watches. Use when Jason asks "what are you watching for?" or "what are you monitoring?"
+- **cancel_watch**: Cancel an active watch by ID. Sets it to expired.
+
+#### Guidelines for Proactive Watch Suggestions
+- DO suggest watches when: Jason mentions reaching out to someone, waiting on a response, tracking a topic over time, or following up on something
+- DON'T suggest watches for: trivial items, things that will resolve in the current conversation, or things already covered by notification rules
+- Keep it casual: "I'll watch for that reply" or "Want me to flag it when that comes in?"
+- If only 1 watch was auto-created from conversation, mentioning it inline is fine. For multiple, the session greeting handles it.
 
 ---
 

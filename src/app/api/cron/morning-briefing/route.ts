@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     // Gather pending action items
     const { data: actionItems } = await supabaseAdmin
       .from('action_items')
-      .select('title, status, priority, due_date')
+      .select('title, status, priority, due_date, description')
       .in('status', ['pending', 'approved'])
       .order('priority')
       .order('created_at', { ascending: false })
@@ -49,6 +49,20 @@ export async function POST(req: NextRequest) {
       .select('description, match_type, match_value, is_active')
       .eq('is_active', true)
 
+    // Fetch calendar events for next 48 hours and contacts for cross-referencing
+    const [{ data: calendarEvents }, { data: contacts }] = await Promise.all([
+      supabaseAdmin
+        .from('calendar_events')
+        .select('title, start_time, end_time, all_day, location, attendees, organizer_email, status')
+        .gte('start_time', new Date().toISOString())
+        .lte('start_time', new Date(Date.now() + 48 * 3600000).toISOString())
+        .order('start_time', { ascending: true }),
+      supabaseAdmin
+        .from('contacts')
+        .select('name, email')
+        .order('name'),
+    ])
+
     // Build prompt
     const systemPrompt = buildBriefingPrompt({
       salesData: (salesData || []).map((s: any) => ({
@@ -62,12 +76,27 @@ export async function POST(req: NextRequest) {
         status: i.status,
         priority: i.priority,
         due_date: i.due_date,
+        description: i.description || null,
       })),
       emailScanStats: (emailScans || []).map((s: any) => ({
         account: s.account,
         emails_processed: s.emails_processed || 0,
         action_items_found: s.action_items_found || 0,
         last_scanned_at: s.last_scanned_at,
+      })),
+      calendarEvents: (calendarEvents || []).map((e: any) => ({
+        title: e.title,
+        start_time: e.start_time,
+        end_time: e.end_time,
+        all_day: e.all_day,
+        location: e.location,
+        attendees: e.attendees || [],
+        organizer_email: e.organizer_email,
+        status: e.status,
+      })),
+      contacts: (contacts || []).map((c: any) => ({
+        name: c.name,
+        email: c.email,
       })),
     }, preferences)
 
