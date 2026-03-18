@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 
 export async function GET() {
+  // GMAIL_CLIENT_ID is a Google OAuth credential used for both Gmail and Calendar
   const clientId = process.env.GMAIL_CLIENT_ID!
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/gmail/callback`
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/google/callback`
 
   const params = new URLSearchParams({
     client_id: clientId,

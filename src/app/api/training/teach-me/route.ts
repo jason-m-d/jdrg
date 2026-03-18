@@ -6,7 +6,7 @@ export async function GET() {
   try {
     // Get first connected Gmail account
     const { data: tokenRow } = await supabaseAdmin
-      .from('gmail_tokens')
+      .from('google_tokens')
       .select('account')
       .limit(1)
       .single()

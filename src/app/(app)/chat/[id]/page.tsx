@@ -82,6 +82,8 @@ export default function ConversationPage() {
       const artifactEvents: any[] = []
       const gmailSearchEvents: any[] = []
       const trainingEvents: any[] = []
+      const structuredQuestionEvents: any[] = []
+      const quickConfirmEvents: any[] = []
       let buffer = ''
 
       while (reader) {
@@ -116,6 +118,12 @@ export default function ConversationPage() {
               if (data.training) {
                 trainingEvents.push(data.training)
               }
+              if (data.structured_question) {
+                structuredQuestionEvents.push(data.structured_question)
+              }
+              if (data.quick_confirm) {
+                quickConfirmEvents.push(data.quick_confirm)
+              }
               if (data.artifact) {
                 artifactEvents.push(data.artifact)
                 const art = data.artifact.artifact as Artifact
@@ -148,6 +156,8 @@ export default function ConversationPage() {
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
         gmailSearchEvents: gmailSearchEvents.length > 0 ? gmailSearchEvents : undefined,
         trainingEvents: trainingEvents.length > 0 ? trainingEvents : undefined,
+        structuredQuestionEvents: structuredQuestionEvents.length > 0 ? structuredQuestionEvents : undefined,
+        quickConfirmEvents: quickConfirmEvents.length > 0 ? quickConfirmEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {
@@ -264,6 +274,13 @@ export default function ConversationPage() {
               // Remove this message and all messages after it, then put text in input
               setMessages(prev => prev.slice(0, messageIndex))
               chatInputRef.current?.setInputText(content)
+            }}
+            onSendMessage={(text) => {
+              if (text.startsWith('__EDIT__')) {
+                chatInputRef.current?.setInputText(text.slice(8))
+              } else {
+                handleSubmit(text)
+              }
             }}
           />
         </div>

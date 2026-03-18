@@ -21,7 +21,7 @@ const BACKGROUND_FALLBACK = 'google/gemini-flash-1.5'
 // --- Auth ---
 async function refreshAccessToken(account: string): Promise<string> {
   const { data: token, error } = await supabase
-    .from('gmail_tokens')
+    .from('google_tokens')
     .select('*')
     .eq('account', account)
     .single()
@@ -44,7 +44,7 @@ async function refreshAccessToken(account: string): Promise<string> {
   })
   const data = await res.json()
   if (data.error) throw new Error(`Refresh failed: ${JSON.stringify(data)}`)
-  await supabase.from('gmail_tokens').update({
+  await supabase.from('google_tokens').update({
     access_token: data.access_token,
     expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
   }).eq('account', account)

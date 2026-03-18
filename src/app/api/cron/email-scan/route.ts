@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
     .eq('is_active', true)
 
   // Get all connected accounts
-  const { data: accounts } = await supabaseAdmin.from('gmail_tokens').select('account')
+  const { data: accounts } = await supabaseAdmin.from('google_tokens').select('account')
   if (!accounts || accounts.length === 0) {
     return NextResponse.json({ message: 'No accounts connected', emails_processed: 0, action_items_found: 0 })
   }

@@ -13,7 +13,7 @@ const supabase = createClient(
 
 async function refreshAccessToken(account: string): Promise<string> {
   const { data: token, error } = await supabase
-    .from('gmail_tokens')
+    .from('google_tokens')
     .select('*')
     .eq('account', account)
     .single()
@@ -50,7 +50,7 @@ async function refreshAccessToken(account: string): Promise<string> {
 
   console.log(`New access token obtained, expires_in=${data.expires_in}`)
 
-  await supabase.from('gmail_tokens').update({
+  await supabase.from('google_tokens').update({
     access_token: data.access_token,
     expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
   }).eq('account', account)
@@ -139,9 +139,9 @@ async function main() {
     if (msg) console.log(`First MP email: Subject="${msg.subject}" From="${msg.from}" Date="${msg.date}" internalDate=${msg.internalDate}`)
   }
 
-  // Test 4: What's actually in the gmail_tokens table
-  console.log('\n--- Test 4: gmail_tokens table contents ---')
-  const { data: tokens } = await supabase.from('gmail_tokens').select('account, expires_at, created_at')
+  // Test 4: What's actually in the google_tokens table
+  console.log('\n--- Test 4: google_tokens table contents ---')
+  const { data: tokens } = await supabase.from('google_tokens').select('account, expires_at, created_at')
   console.log('All token rows:', JSON.stringify(tokens, null, 2))
 
   // Test 5: email_scans table

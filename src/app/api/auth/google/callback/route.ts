@@ -5,9 +5,10 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
   if (!code) return NextResponse.redirect('/settings/email?error=no_code')
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/gmail/callback`
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/google/callback`
 
   // Exchange code for tokens
+  // GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET are Google OAuth credentials used for both Gmail and Calendar
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   const account = profile.emailAddress
 
   // Upsert token
-  await supabaseAdmin.from('gmail_tokens').upsert({
+  await supabaseAdmin.from('google_tokens').upsert({
     account,
     refresh_token: tokens.refresh_token,
     access_token: tokens.access_token,

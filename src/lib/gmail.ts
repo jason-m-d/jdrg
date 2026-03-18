@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 export async function searchEmails(query: string, maxResults: number = 10) {
   // Get first connected Gmail account
   const { data: tokenRow } = await supabaseAdmin
-    .from('gmail_tokens')
+    .from('google_tokens')
     .select('account')
     .limit(1)
     .single()
@@ -53,7 +53,7 @@ export async function searchEmails(query: string, maxResults: number = 10) {
 
 export async function refreshAccessToken(account: string): Promise<string> {
   const { data: token } = await supabaseAdmin
-    .from('gmail_tokens')
+    .from('google_tokens')
     .select('*')
     .eq('account', account)
     .single()
@@ -66,6 +66,7 @@ export async function refreshAccessToken(account: string): Promise<string> {
   }
 
   // Refresh
+  // GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET are Google OAuth credentials used for both Gmail and Calendar
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -80,7 +81,7 @@ export async function refreshAccessToken(account: string): Promise<string> {
   const data = await res.json()
   if (data.error) throw new Error(`Token refresh failed: ${data.error}`)
 
-  await supabaseAdmin.from('gmail_tokens').update({
+  await supabaseAdmin.from('google_tokens').update({
     access_token: data.access_token,
     expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
   }).eq('account', account)
@@ -100,7 +101,7 @@ export async function fetchEmails(account: string, since: Date, maxResults = 20,
 
   if (listRes.status === 401) {
     console.warn('[gmail] Got 401, clearing cached token and retrying...')
-    await supabaseAdmin.from('gmail_tokens').update({ access_token: null, expires_at: null }).eq('account', account)
+    await supabaseAdmin.from('google_tokens').update({ access_token: null, expires_at: null }).eq('account', account)
     accessToken = await refreshAccessToken(account)
     listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } })
     if (listRes.status === 401) throw new Error('Gmail API error: 401 after token refresh')
@@ -200,7 +201,7 @@ async function getEmailAttachments(payload: any, messageId: string, accessToken:
 export async function createDraft(to: string, subject: string, body: string, cc?: string): Promise<{ id: string; message: string }> {
   // Get first connected Gmail account
   const { data: tokenRow } = await supabaseAdmin
-    .from('gmail_tokens')
+    .from('google_tokens')
     .select('account')
     .limit(1)
     .single()

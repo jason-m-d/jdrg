@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS sales_data (
 );
 
 -- Gmail tokens
-CREATE TABLE IF NOT EXISTS gmail_tokens (
+CREATE TABLE IF NOT EXISTS google_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account text NOT NULL UNIQUE,
   refresh_token text NOT NULL,
@@ -159,7 +159,7 @@ ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE action_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_scans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales_data ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gmail_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE google_tokens ENABLE ROW LEVEL SECURITY;
 
 -- Allow authenticated users full access (single-user app)
 CREATE POLICY "Allow authenticated access" ON projects FOR ALL TO authenticated USING (true) WITH CHECK (true);
@@ -172,7 +172,7 @@ CREATE POLICY "Allow authenticated access" ON memories FOR ALL TO authenticated 
 CREATE POLICY "Allow authenticated access" ON action_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated access" ON email_scans FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "Allow authenticated access" ON sales_data FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated access" ON gmail_tokens FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated access" ON google_tokens FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Create a storage bucket for documents
 INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', false)

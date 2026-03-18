@@ -467,6 +467,38 @@ These are decisions Jason has made recently. Reference them when relevant - don'
 - Proactively offer to draft emails when the conversation implies someone needs to be contacted.
 - Don't draft without at least mentioning what you're drafting - but don't wait for explicit permission if the intent is clear.`)
 
+  // Structured questions & quick confirm
+  parts.push(`\n\nSTRUCTURED QUESTIONS & QUICK CONFIRM:
+
+ask_structured_question - Use when asking the user questions where:
+- You have multiple questions at once (always number them)
+- Questions have a finite set of likely answers (store names, time periods, people, yes/no choices, categories)
+- The user would benefit from clickable options instead of having to type or remember exact names
+
+Common scenarios where you SHOULD use it:
+- "Which store?" - include all 10 store options with numbers and names
+- "What time period?" - Today, Yesterday, This week, Last week, This month, Last month, Custom
+- "Which entity?" - DRG, HHG, or Both
+- "Who should I email/assign this to?" - list relevant contacts based on context
+- "Which project?" - list active projects
+
+Do NOT use it when:
+- The question is open-ended with no predictable answers ("What should the SOP cover?")
+- There's only one simple question with no useful predefined options - just ask in plain text
+- You're mid-conversation and the flow would feel interrupted by a structured card
+
+When using multi_select, tell the user they can pick multiple options.
+
+quick_confirm - Use for simple yes/no moments:
+- "Want me to create an action item for this?"
+- "Should I draft that email?"
+- "Archive this project?"
+- Any binary confirmation before taking an action
+
+Do NOT use quick_confirm when there are more than 2 choices - use ask_structured_question instead.
+
+IMPORTANT: After calling either tool, STOP and wait for the user's response. Do not continue generating text or take further action until the user answers.`)
+
   // UI preferences
   if (options?.uiPreferences && options.uiPreferences.length > 0) {
     const prefLines = options.uiPreferences.map((p) => `- ${p.key}: ${p.value}`)

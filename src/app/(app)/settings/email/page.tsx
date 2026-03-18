@@ -19,7 +19,7 @@ export default function EmailSettingsPage() {
   async function loadData() {
     const supabase = getSupabaseBrowser()
 
-    const { data: tokens } = await supabase.from('gmail_tokens').select('account, created_at')
+    const { data: tokens } = await supabase.from('google_tokens').select('account, created_at')
     setAccounts(tokens || [])
 
     const { data: scanData } = await supabase.from('email_scans').select('*').order('last_scanned_at', { ascending: false })
@@ -29,7 +29,7 @@ export default function EmailSettingsPage() {
   }
 
   async function handleConnect() {
-    window.location.href = '/api/auth/gmail'
+    window.location.href = '/api/auth/google'
   }
 
   async function handleManualScan() {
@@ -96,7 +96,7 @@ export default function EmailSettingsPage() {
                     onClick={async () => {
                       if (!confirm(`Disconnect ${acc.account}? You can reconnect anytime.`)) return
                       const supabase = getSupabaseBrowser()
-                      await supabase.from('gmail_tokens').delete().eq('account', acc.account)
+                      await supabase.from('google_tokens').delete().eq('account', acc.account)
                       await supabase.from('email_scans').delete().eq('account', acc.account)
                       setAccounts(prev => prev.filter(a => a.account !== acc.account))
                     }}

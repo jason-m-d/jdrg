@@ -1,7 +1,7 @@
 -- Calendar integration tables
 -- Run: PGPASSWORD="..." psql -h db.wzhdyfprmgalyvodwrxf.supabase.co -U postgres -d postgres -f scripts/create-calendar-tables.sql
 
--- Calendar tokens (same shape as gmail_tokens)
+-- Calendar tokens (same shape as google_tokens)
 CREATE TABLE IF NOT EXISTS calendar_tokens (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   account text UNIQUE NOT NULL,

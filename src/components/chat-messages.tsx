@@ -6,6 +6,8 @@ import { Bell, Check, ChevronDown, Clock, Copy, FileText, FolderOpen, FolderPen,
 import Link from 'next/link'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { GreetingCard } from '@/components/greeting-card'
+import { StructuredQuestionCard } from '@/components/structured-question-card'
+import { QuickConfirmCard } from '@/components/quick-confirm-card'
 
 interface SurfacedItem {
   id: string
@@ -29,6 +31,7 @@ interface ChatMessagesProps {
   onEditMessage?: (messageIndex: number, content: string) => void
   greetingData?: GreetingData | null
   onGreetingItemHandled?: (itemId: string) => void
+  onSendMessage?: (text: string) => void
 }
 
 function formatDate() {
@@ -42,7 +45,7 @@ function formatTime(dateStr?: string) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled }: ChatMessagesProps) {
+export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled, onSendMessage }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -84,6 +87,7 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
             onArtifactClick={onArtifactClick}
             onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
             onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
+            onSendMessage={onSendMessage}
           />
         ))}
         {streamingContent && (
@@ -182,7 +186,7 @@ function ProactiveFeedback({ messageContent }: { messageContent: string }) {
   )
 }
 
-function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; isStreaming?: boolean; toolStatus?: string | null; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
+function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactClick, onCopy, onEdit, onSendMessage }: { message: any; isLatest?: boolean; isStreaming?: boolean; toolStatus?: string | null; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void; onSendMessage?: (text: string) => void }) {
   const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const isUser = message.role === 'user'
@@ -394,6 +398,24 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
               <TrainingCard key={i} event={evt} />
             ))}
           </CollapsibleCards>
+        </div>
+      )}
+
+      {/* Structured Questions */}
+      {message.structuredQuestionEvents && message.structuredQuestionEvents.length > 0 && onSendMessage && (
+        <div className="mt-3 space-y-1.5">
+          {message.structuredQuestionEvents.map((evt: any, i: number) => (
+            <StructuredQuestionCard key={i} event={evt} onSendMessage={onSendMessage} />
+          ))}
+        </div>
+      )}
+
+      {/* Quick Confirm */}
+      {message.quickConfirmEvents && message.quickConfirmEvents.length > 0 && onSendMessage && (
+        <div className="mt-3 space-y-1.5">
+          {message.quickConfirmEvents.map((evt: any, i: number) => (
+            <QuickConfirmCard key={i} event={evt} onSendMessage={onSendMessage} />
+          ))}
         </div>
       )}
 

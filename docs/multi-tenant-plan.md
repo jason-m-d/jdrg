@@ -89,7 +89,7 @@ Tables to modify:
 - action_items
 - email_scans
 - sales_data
-- gmail_tokens (add user_id alongside existing account key)
+- google_tokens (add user_id alongside existing account key)
 - artifacts
 - artifact_versions
 - project_context
@@ -151,7 +151,7 @@ async function getAuthenticatedUser(req: NextRequest) {
 
 ### Gmail integration changes
 
-- `gmail_tokens` gets `user_id` column
+- `google_tokens` gets `user_id` column
 - OAuth callback links token to authenticated user, not just email
 - `searchEmails()` takes user_id, finds that user's connected account
 - Email scan cron iterates by user, not by global account list

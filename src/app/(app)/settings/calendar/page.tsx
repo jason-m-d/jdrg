@@ -29,7 +29,7 @@ export default function CalendarSettingsPage() {
   }
 
   async function handleConnect() {
-    window.location.href = '/api/auth/gmail'
+    window.location.href = '/api/auth/google'
   }
 
   async function handleManualSync() {

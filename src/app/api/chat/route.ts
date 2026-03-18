@@ -544,6 +544,61 @@ const FIND_AVAILABILITY_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const ASK_STRUCTURED_QUESTION_TOOL: Anthropic.Messages.Tool = {
+  name: 'ask_structured_question',
+  description: 'Present the user with numbered questions, optionally with clickable answer choices. Use this instead of asking questions in plain text when you need structured input from the user. After calling this tool, STOP and wait for the user to respond — do not continue generating text.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      questions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'Question number' },
+            text: { type: 'string', description: 'The question text' },
+            options: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional clickable answer choices',
+            },
+            multi_select: {
+              type: 'boolean',
+              description: 'Whether the user can pick multiple options (default: false)',
+            },
+          },
+          required: ['number', 'text'],
+        },
+        description: 'Array of questions to present',
+      },
+    },
+    required: ['questions'],
+  },
+}
+
+const QUICK_CONFIRM_TOOL: Anthropic.Messages.Tool = {
+  name: 'quick_confirm',
+  description: 'Present the user with a simple yes/no confirmation prompt. Use this when you need a quick go/no-go before taking an action. After calling this tool, STOP and wait for the user to respond — do not continue generating text.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      prompt: {
+        type: 'string',
+        description: 'What you are confirming (e.g. "Create an action item for Roger to fix labor at 326?")',
+      },
+      confirm_label: {
+        type: 'string',
+        description: 'Label for the confirm button (default: "Yes")',
+      },
+      deny_label: {
+        type: 'string',
+        description: 'Label for the deny button (default: "No")',
+      },
+    },
+    required: ['prompt'],
+  },
+}
+
 const CREATE_CALENDAR_EVENT_TOOL: Anthropic.Messages.Tool = {
   name: 'create_calendar_event',
   description: 'Create a new calendar event. Use when Jason asks to schedule, book, or add something to his calendar.',
@@ -901,7 +956,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL, CREATE_WATCH_TOOL, LIST_WATCHES_TOOL, CANCEL_WATCH_TOOL, CHECK_CALENDAR_TOOL, FIND_AVAILABILITY_TOOL, CREATE_CALENDAR_EVENT_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL, CREATE_WATCH_TOOL, LIST_WATCHES_TOOL, CANCEL_WATCH_TOOL, CHECK_CALENDAR_TOOL, FIND_AVAILABILITY_TOOL, CREATE_CALENDAR_EVENT_TOOL, ASK_STRUCTURED_QUESTION_TOOL, QUICK_CONFIRM_TOOL],
             ...({ extra_body: { models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'], provider: { sort: 'latency' } } } as any),
           })
 
@@ -965,6 +1020,8 @@ export async function POST(req: NextRequest) {
                   create_watch: 'Setting up watch',
                   list_watches: 'Checking watches',
                   cancel_watch: 'Canceling watch',
+                  ask_structured_question: 'Asking question',
+                  quick_confirm: 'Asking for confirmation',
                 }
                 const statusLabel = toolStatusLabels[currentToolUse.name] || 'Working'
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool_status: statusLabel })}\n\n`))
@@ -1193,6 +1250,20 @@ export async function POST(req: NextRequest) {
                 } else if (currentToolUse.name === 'create_calendar_event') {
                   toolResult = await executeCreateCalendarEvent(toolInput)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ calendar: { operation: 'create', result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'ask_structured_question') {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    structured_question: { questions: toolInput.questions },
+                  })}\n\n`))
+                  toolResult = { status: 'ok', message: 'Questions presented to user. Waiting for response.' }
+                } else if (currentToolUse.name === 'quick_confirm') {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    quick_confirm: {
+                      prompt: toolInput.prompt,
+                      confirm_label: toolInput.confirm_label || 'Yes',
+                      deny_label: toolInput.deny_label || 'No',
+                    },
+                  })}\n\n`))
+                  toolResult = { status: 'ok', message: 'Confirmation prompt presented to user. Waiting for response.' }
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
@@ -1217,8 +1288,9 @@ export async function POST(req: NextRequest) {
                   },
                 ]
 
+                const stopAfterTool = currentToolUse.name === 'ask_structured_question' || currentToolUse.name === 'quick_confirm'
                 currentToolUse = null
-                continueLoop = true
+                continueLoop = !stopAfterTool
               } else if (currentTextBlock) {
                 contentBlocks.push({
                   type: 'text',
@@ -1936,7 +2008,7 @@ async function executeTrainingTool(
       try {
         // Reuse the teach-me logic: fetch recent emails and build snippets
         const { data: tokenRow } = await supabaseAdmin
-          .from('gmail_tokens')
+          .from('google_tokens')
           .select('account')
           .limit(1)
           .single()

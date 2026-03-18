@@ -287,6 +287,33 @@ Create a new event on Jason's Google Calendar.
 - Use find_availability first when scheduling to avoid conflicts
 - If the meeting relates to an active project, mention the connection
 
+### 17. Structured Questions (ask_structured_question)
+Present the user with numbered questions that have clickable answer options. Instead of asking questions in plain text, Crosby can render interactive cards with selectable chips for each answer choice.
+
+**When to use:** When Crosby needs input on things with a finite set of likely answers — which store, which time period, which entity, which person, which project. Also useful when asking multiple questions at once.
+
+**How it works in the UI:**
+1. Crosby calls the tool with an array of numbered questions, each optionally with answer choices
+2. An interactive card appears in chat with clickable option chips under each question
+3. If multi_select is true, the user can pick multiple options for that question
+4. Each question also has an "Other..." option that opens a text input for a custom answer
+5. A running summary of selected answers appears at the bottom — clicking any answer jumps back to change it
+6. "Send" auto-sends the answers; "Edit first" puts them in the input box for modification
+7. After sending, the card becomes static (shows what was selected, no longer clickable)
+
+### 18. Quick Confirm (quick_confirm)
+Present the user with a simple yes/no confirmation before taking an action.
+
+**When to use:** Before creating action items, drafting emails, archiving projects, or any action where a quick go/no-go makes sense.
+
+**How it works in the UI:**
+1. Crosby calls the tool with a prompt and optional button labels (defaults to "Yes" / "No")
+2. Two buttons appear inline in chat
+3. Clicking either button auto-sends that label as the user's response
+4. After clicking, the selected button highlights and the other dims — no longer clickable
+
+Both tools cause Crosby to pause and wait for the user's answer before continuing.
+
 ---
 
 ## Sessions, Notepad, and Contacts
