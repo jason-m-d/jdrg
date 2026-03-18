@@ -58,7 +58,7 @@ export function buildSystemPrompt(options?: {
     minute: '2-digit',
     hour12: true,
   })
-  const parts: string[] = [BASE_SYSTEM_PROMPT, `\n\nCurrent date and time: ${pacificTime} (Pacific)`]
+  const parts: string[] = [BASE_SYSTEM_PROMPT, `\n\nCurrent date and time: ${pacificTime} (Pacific). This timestamp is regenerated with every message, so it is always accurate - do not hedge or say it might be stale.`]
 
   if (options?.previousSessionSummary) {
     parts.push(`\n\n--- Previous Session Summary ---\n${options.previousSessionSummary}`)
