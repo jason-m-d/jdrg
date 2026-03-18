@@ -18,6 +18,7 @@ export default function ConversationPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [convTitle, setConvTitle] = useState<string>('')
   const [streamingContent, setStreamingContent] = useState('')
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
   const [openArtifactIds, setOpenArtifactIds] = useState<string[]>([])
@@ -55,6 +56,7 @@ export default function ConversationPage() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
     setLoading(true)
     setStreamingContent('')
+    setToolStatus(null)
 
     try {
       const res = await fetch('/api/chat', {
@@ -94,7 +96,11 @@ export default function ConversationPage() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
+              if (data.tool_status) {
+                setToolStatus(data.tool_status)
+              }
               if (data.text) {
+                setToolStatus(null)
                 fullText += data.text
                 setStreamingContent(fullText)
               }
@@ -229,6 +235,7 @@ export default function ConversationPage() {
             messages={messages}
             streamingContent={streamingContent}
             loading={loading}
+            toolStatus={toolStatus}
             onArtifactClick={handleArtifactClick}
             onCopyMessage={(content) => {
               chatInputRef.current?.setInputText(content)

@@ -30,6 +30,7 @@ export default function HomePage() {
   })
   const [loading, setLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -216,6 +217,7 @@ export default function HomePage() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
     setLoading(true)
     setStreamingContent('')
+    setToolStatus(null)
 
     try {
       const res = await fetch('/api/chat', {
@@ -265,7 +267,11 @@ export default function HomePage() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
+              if (data.tool_status) {
+                setToolStatus(data.tool_status)
+              }
               if (data.text) {
+                setToolStatus(null)
                 fullText += data.text
                 setStreamingContent(fullText)
               }
@@ -451,6 +457,7 @@ export default function HomePage() {
             messages={messages}
             streamingContent={streamingContent}
             loading={loading}
+            toolStatus={toolStatus}
             onArtifactClick={handleArtifactClick}
             greetingData={greetingData}
             onGreetingItemHandled={(itemId) => {

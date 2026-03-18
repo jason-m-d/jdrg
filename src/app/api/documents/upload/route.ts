@@ -31,9 +31,21 @@ export async function POST(req: NextRequest) {
 
     try {
       if (ext === 'pdf') {
-        const { extractPdfText } = await import('@/lib/pdf')
+        const { extractPdfText, ocrPdfWithAI } = await import('@/lib/pdf')
         content = await extractPdfText(buffer)
         fileType = 'pdf'
+
+        if (content.trim().length < 100) {
+          console.log(`PDF "${fileName}" yielded thin text (${content.trim().length} chars), falling back to OCR`)
+          try {
+            const ocrText = await ocrPdfWithAI(buffer)
+            if (ocrText.trim().length > content.trim().length) {
+              content = ocrText
+            }
+          } catch (ocrError: any) {
+            console.warn('OCR fallback failed, using original text:', ocrError.message)
+          }
+        }
       } else if (ext === 'docx') {
         const mammoth = await import('mammoth')
         const result = await mammoth.extractRawText({ buffer })

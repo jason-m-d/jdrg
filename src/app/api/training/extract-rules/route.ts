@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getTrainingStats } from '@/lib/training'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'google/gemini-3.1-flash-lite-preview,google/gemini-3-flash-preview' } })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,6 +53,7 @@ Keep rules specific and actionable. 5-10 rules max. Base them on clear patterns 
         role: 'user',
         content: `Here are ${examples.length} labeled examples. Extract rules:\n\n${exampleLines.join('\n\n')}`,
       }],
+      ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
     })
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''

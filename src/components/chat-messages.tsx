@@ -23,6 +23,7 @@ interface ChatMessagesProps {
   messages: any[]
   streamingContent: string
   loading: boolean
+  toolStatus?: string | null
   onArtifactClick?: (artifactId: string) => void
   onCopyMessage?: (content: string) => void
   onEditMessage?: (messageIndex: number, content: string) => void
@@ -41,7 +42,7 @@ function formatTime(dateStr?: string) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-export function ChatMessages({ messages, streamingContent, loading, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled }: ChatMessagesProps) {
+export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -86,17 +87,36 @@ export function ChatMessages({ messages, streamingContent, loading, onArtifactCl
           />
         ))}
         {streamingContent && (
-          <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest isStreaming={loading} />
+          <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest isStreaming={loading} toolStatus={toolStatus} />
         )}
         {loading && !streamingContent && (
           <div className="py-6 animate-in-up">
             <div className="text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium mb-1.5">
               Crosby
             </div>
-            <div className="flex items-center gap-2 text-muted-foreground/60">
-              <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite' }} />
-              <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.2s' }} />
-              <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.4s' }} />
+            <div className="h-[1.2rem] flex items-center">
+              {toolStatus ? (
+                <span
+                  key={toolStatus}
+                  className="text-[0.8125rem] font-light tracking-wide"
+                  style={{
+                    background: 'linear-gradient(90deg, hsl(var(--muted-foreground) / 0.3) 0%, hsl(var(--muted-foreground) / 0.6) 50%, hsl(var(--muted-foreground) / 0.3) 100%)',
+                    backgroundSize: '200% 100%',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    animation: 'text-shimmer 2.5s ease-in-out infinite, fade-in 0.3s ease both',
+                  }}
+                >
+                  {toolStatus}
+                </span>
+              ) : (
+                <div className="flex items-center gap-2 animate-in-fade">
+                  <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite' }} />
+                  <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.2s' }} />
+                  <span className="inline-block size-1 bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.4s' }} />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -162,7 +182,7 @@ function ProactiveFeedback({ messageContent }: { messageContent: string }) {
   )
 }
 
-function MessageBlock({ message, isLatest, isStreaming, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; isStreaming?: boolean; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
+function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactClick, onCopy, onEdit }: { message: any; isLatest?: boolean; isStreaming?: boolean; toolStatus?: string | null; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void }) {
   const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const isUser = message.role === 'user'
@@ -199,9 +219,28 @@ function MessageBlock({ message, isLatest, isStreaming, onArtifactClick, onCopy,
         <FormattedContent content={message.content} />
         {isStreaming && (
           <span className="inline-flex items-center gap-1 ml-1 align-middle">
-            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite' }} />
-            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.2s' }} />
-            <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.4s' }} />
+            {toolStatus ? (
+              <span
+                key={toolStatus}
+                className="text-[0.75rem] font-light tracking-wide"
+                style={{
+                  background: 'linear-gradient(90deg, hsl(var(--muted-foreground) / 0.3) 0%, hsl(var(--muted-foreground) / 0.6) 50%, hsl(var(--muted-foreground) / 0.3) 100%)',
+                  backgroundSize: '200% 100%',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  animation: 'text-shimmer 2.5s ease-in-out infinite, fade-in 0.3s ease both',
+                }}
+              >
+                {toolStatus}
+              </span>
+            ) : (
+              <>
+                <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite' }} />
+                <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.2s' }} />
+                <span className="inline-block size-1 rounded-full bg-muted-foreground/40" style={{ animation: 'pulse-subtle 1.5s ease-in-out infinite 0.4s' }} />
+              </>
+            )}
           </span>
         )}
       </div>

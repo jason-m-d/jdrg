@@ -11,7 +11,7 @@ import { fetchEmails } from '@/lib/gmail'
 import type { ActionItem, Artifact, DashboardCard, NotificationRule, Bookmark, UIPreference, Note, Contact } from '@/lib/types'
 import { sendPushToAll } from '@/lib/push'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'claude-sonnet-4-20250514,google/gemini-3.1-pro-preview' } })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
 const ACTION_ITEM_TOOL: Anthropic.Messages.Tool = {
   name: 'manage_action_items',
@@ -387,9 +387,32 @@ const TRAINING_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const SEARCH_WEB_TOOL: Anthropic.Messages.Tool = {
+  name: 'search_web',
+  description: 'Search the web for current information - locations, addresses, business info, current events, venue details, anything you\'re not certain about.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: { type: 'string', description: 'The search query' },
+    },
+    required: ['query'],
+  },
+}
+
+async function executeWebSearch(query: string): Promise<string> {
+  const searchClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+  const response = await searchClient.messages.create({
+    model: 'perplexity/sonar-pro-search',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: query }],
+    ...({ extra_body: { provider: { sort: 'price' } } } as any),
+  })
+  return response.content[0].type === 'text' ? response.content[0].text : 'No results found.'
+}
+
 export async function POST(req: NextRequest) {
   const { message, conversation_id, project_id, active_artifact_id, model } = await req.json()
-  const selectedModel = model || 'anthropic/claude-sonnet-4.6'
+  const selectedModel = model || 'anthropic/claude-sonnet-4.6:exacto'
 
   // Create or get conversation
   let convId = conversation_id
@@ -499,21 +522,20 @@ export async function POST(req: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      let loopCount = 0
       try {
         let currentMessages = [...chatMessages]
         let continueLoop = true
 
         while (continueLoop) {
           continueLoop = false
-          loopCount++
 
           const response = anthropic.messages.stream({
             model: selectedModel,
             max_tokens: 4096,
-            system: systemPrompt,
+            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL],
+            ...({ extra_body: { models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'], provider: { sort: 'latency' } } } as any),
           })
 
           // Collect content blocks for this turn
@@ -555,6 +577,26 @@ export async function POST(req: NextRequest) {
                   name: currentToolUse.name,
                   input: toolInput,
                 } as Anthropic.Messages.ContentBlock)
+
+                // Send tool status event before execution
+                const toolStatusLabels: Record<string, string> = {
+                  manage_artifact: 'Working on artifact',
+                  manage_project_context: 'Updating project context',
+                  search_gmail: 'Searching your email',
+                  draft_email: 'Drafting an email',
+                  manage_project: 'Managing project',
+                  manage_bookmarks: 'Saving a bookmark',
+                  manage_dashboard: 'Updating dashboard',
+                  manage_notification_rules: 'Setting up alert rule',
+                  manage_preferences: 'Updating preferences',
+                  manage_training: 'Running training',
+                  manage_notepad: 'Updating notepad',
+                  manage_contacts: 'Updating contacts',
+                  search_web: `Searching the web`,
+                  manage_action_items: 'Managing action items',
+                }
+                const statusLabel = toolStatusLabels[currentToolUse.name] || 'Working'
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool_status: statusLabel })}\n\n`))
 
                 // Execute the tool
                 let toolResult: any
@@ -661,6 +703,16 @@ export async function POST(req: NextRequest) {
                 } else if (currentToolUse.name === 'manage_contacts') {
                   toolResult = await executeContactsTool(toolInput)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ contact: { operation: toolInput.operation, result: toolResult } })}\n\n`))
+                } else if (currentToolUse.name === 'search_web') {
+                  try {
+                    const result = await executeWebSearch(toolInput.query)
+                    toolResult = { status: 'ok', result }
+                  } catch (e: any) {
+                    toolResult = { status: 'error', message: e.message }
+                  }
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    web_search: { query: toolInput.query, result: toolResult.result || toolResult.message },
+                  })}\n\n`))
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
@@ -729,11 +781,7 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, conversation_id: convId, sources })}\n\n`))
         controller.close()
       } catch (error) {
-        const errBody = (error as any)?.error
-        console.error('CHAT_ERR_LOOP=' + loopCount)
-        console.error('CHAT_ERR_STATUS=' + (error as any)?.status)
-        console.error('CHAT_ERR_TYPE=' + errBody?.type)
-        console.error('CHAT_ERR_MSG=' + (errBody?.message || (error as Error)?.message))
+        console.error('Chat stream error:', error)
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`))
         controller.close()
       }
@@ -1564,13 +1612,14 @@ async function summarizeSession(sessionId: string, convId: string) {
     .map(m => `${m.role === 'user' ? 'Jason' : 'Crosby'}: ${m.content.slice(0, 500)}`)
     .join('\n\n')
 
-  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'claude-sonnet-4-20250514,google/gemini-3.1-pro-preview' } })
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
   const response = await anthropicClient.messages.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 800,
     system: `Summarize this conversation session for Jason DeMayo's AI workspace. Write bullet points under 400 words. Focus on: decisions made, information shared, action items created or discussed, open questions, and anything Crosby should remember for the next session. Be specific - include names, numbers, and dates.`,
     messages: [{ role: 'user', content: transcript }],
+    ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
   })
 
   const summary = response.content[0].type === 'text' ? response.content[0].text : ''
@@ -1587,13 +1636,14 @@ async function summarizeSession(sessionId: string, convId: string) {
 }
 
 async function extractNotepadEntriesFromSummary(summary: string) {
-  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'claude-sonnet-4-20250514,google/gemini-3.1-pro-preview' } })
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
   const response = await anthropicClient.messages.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 400,
     system: `Extract 0-3 time-sensitive operational facts from this session summary that should go on the notepad. These are short-lived facts like "ordered deposit slips for 2262", "Roger is out this week", "waiting on callback from landlord at 1008". NOT general business knowledge. Return JSON: {"entries": [{"content": "...", "title": "..."}]} or {"entries": []} if nothing fits.`,
     messages: [{ role: 'user', content: summary }],
+    ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
@@ -1755,6 +1805,7 @@ async function extractMemories(conversationId: string, userMessage: string, assi
     const response = await anthropic.messages.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
+      ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
       system: `You manage a memory system for Jason DeMayo (also goes by "Jerry"). Extract genuinely NEW information from this conversation turn.
 
 Rules:

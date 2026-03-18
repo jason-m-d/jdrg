@@ -5,7 +5,7 @@ import { buildBriefingPrompt } from '@/lib/system-prompt'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'google/gemini-3.1-flash-lite-preview,google/gemini-3-flash-preview' } })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
@@ -92,6 +92,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 1024,
       system: fullPrompt,
       messages: [{ role: 'user', content: 'Generate the morning briefing.' }],
+      ...({ extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } } as any),
     })
 
     const briefingText = response.content[0].type === 'text' ? response.content[0].text : ''

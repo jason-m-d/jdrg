@@ -115,17 +115,66 @@ export async function fetchEmails(account: string, since: Date) {
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
     const from = headers.find((h: any) => h.name === 'From')?.value || ''
     const body = getEmailBody(msgData.payload)
+    const attachments = await getEmailAttachments(msgData.payload, msg.id, accessToken)
 
     emails.push({
       id: msg.id,
       subject,
       from,
       body,
+      attachments,
       internalDate: msgData.internalDate,
     })
   }
 
   return emails
+}
+
+async function getEmailAttachments(payload: any, messageId: string, accessToken: string): Promise<{ filename: string; data: Buffer }[]> {
+  const attachments: { filename: string; data: Buffer }[] = []
+
+  const attachmentParts: { filename: string; part: any }[] = []
+  function collectPartsMeta(part: any) {
+    if (!part) return
+    const filename = part.filename || ''
+    const mimeType = part.mimeType || ''
+    if (filename && mimeType === 'application/pdf') {
+      attachmentParts.push({ filename, part })
+    }
+    if (part.parts) {
+      for (const child of part.parts) collectPartsMeta(child)
+    }
+  }
+  collectPartsMeta(payload)
+
+  for (const { filename, part } of attachmentParts) {
+    try {
+      let data: Buffer
+      if (part.body?.data) {
+        // Inline attachment
+        data = Buffer.from(part.body.data, 'base64url')
+      } else if (part.body?.attachmentId) {
+        // Fetch via attachment endpoint
+        const res = await fetch(
+          `https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${part.body.attachmentId}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        )
+        const attachData = await res.json()
+        if (attachData.error) {
+          console.warn(`Failed to fetch attachment ${filename}:`, attachData.error.message)
+          continue
+        }
+        data = Buffer.from(attachData.data, 'base64url')
+      } else {
+        continue
+      }
+      attachments.push({ filename, data })
+    } catch (e: any) {
+      console.warn(`Error downloading attachment ${filename}:`, e.message)
+    }
+  }
+
+  return attachments
 }
 
 export async function createDraft(to: string, subject: string, body: string, cc?: string): Promise<{ id: string; message: string }> {

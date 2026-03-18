@@ -32,6 +32,7 @@ export default function ProjectPage() {
   const [input, setInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [messagesLoading, setMessagesLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -109,6 +110,7 @@ export default function ProjectPage() {
           setMessages([{ role: 'user', content: autoMessage }])
           setChatLoading(true)
           setStreamingContent('')
+          setToolStatus(null)
 
           fetch('/api/chat', {
             method: 'POST',
@@ -143,7 +145,11 @@ export default function ProjectPage() {
                 if (line.startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.slice(6))
+                    if (data.tool_status) {
+                      setToolStatus(data.tool_status)
+                    }
                     if (data.text) {
+                      setToolStatus(null)
                       fullText += data.text
                       setStreamingContent(fullText)
                     }
@@ -259,6 +265,7 @@ export default function ProjectPage() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
     setChatLoading(true)
     setStreamingContent('')
+    setToolStatus(null)
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
@@ -297,7 +304,11 @@ export default function ProjectPage() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
+              if (data.tool_status) {
+                setToolStatus(data.tool_status)
+              }
               if (data.text) {
+                setToolStatus(null)
                 fullText += data.text
                 setStreamingContent(fullText)
               }
@@ -1023,6 +1034,7 @@ export default function ProjectPage() {
               messages={messages}
               streamingContent={streamingContent}
               loading={chatLoading}
+              toolStatus={toolStatus}
               onArtifactClick={handleArtifactClick}
             />
           )}

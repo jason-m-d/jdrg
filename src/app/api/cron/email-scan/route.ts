@@ -6,7 +6,8 @@ import { getMainConversation, insertProactiveMessage, getUserPreferences } from 
 import { buildFewShotBlock } from '@/lib/training'
 import { sendPushToAll } from '@/lib/push'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL, defaultHeaders: { 'X-OR-Models': 'google/gemini-3.1-flash-lite-preview,google/gemini-3-flash-preview' } })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+const BACKGROUND_EXTRA_BODY = { extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } }
 
 const WINGSTOP_STORES = ['326', '451', '895', '1870', '2067', '2428', '2262', '2289']
 
@@ -157,6 +158,7 @@ export async function POST(req: NextRequest) {
               role: 'user',
               content: emailText,
             }],
+            ...(BACKGROUND_EXTRA_BODY as any),
           })
 
           const text = response.content[0].type === 'text' ? response.content[0].text : ''
@@ -311,6 +313,7 @@ async function maybeGenerateAlert(newActionItemCount: number) {
     max_tokens: 256,
     system: `Write a very short alert (2-3 sentences max) for Jason DeMayo. Be direct, no fluff. Use hyphens not em dashes.${preferences.length > 0 ? `\n\nUser preferences:\n${preferences.map(p => `- ${p}`).join('\n')}` : ''}`,
     messages: [{ role: 'user', content: `Alert items:\n${alertWorthy.map(a => `- ${a}`).join('\n')}` }],
+    ...(BACKGROUND_EXTRA_BODY as any),
   })
 
   const alertText = response.content[0].type === 'text' ? response.content[0].text : ''
@@ -332,22 +335,62 @@ export async function GET(req: NextRequest) {
   return POST(req)
 }
 
+async function extractPdfTextFromBuffer(buffer: Buffer): Promise<string> {
+  const { extractPdfText } = await import('@/lib/pdf')
+  return extractPdfText(buffer)
+}
+
+function parseJsonSafe(text: string): any {
+  let cleaned = text.trim()
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
+  }
+  const match = cleaned.match(/\{[\s\S]*\}/)
+  return match ? JSON.parse(match[0]) : JSON.parse(cleaned)
+}
+
 async function parseWingstopSales(email: any) {
   try {
+    // Find the "Forecast vs Actuals" PDF attachment
+    const attachments: { filename: string; data: Buffer }[] = email.attachments || []
+    const forecastPdf = attachments.find((a: any) =>
+      a.filename.toLowerCase().includes('forecast') || a.filename.toLowerCase().includes('actual')
+    ) || attachments.find((a: any) => a.filename.toLowerCase().endsWith('.pdf'))
+
+    if (!forecastPdf) {
+      console.warn(`Wingstop email ${email.id} has no PDF attachments, skipping sales parse`)
+      return
+    }
+
+    const pdfText = await extractPdfTextFromBuffer(forecastPdf.data)
+    if (!pdfText || pdfText.trim().length < 50) {
+      console.warn(`Wingstop PDF "${forecastPdf.filename}" yielded no text`)
+      return
+    }
+
     const response = await anthropic.messages.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      system: `Parse this Wingstop NBO Daily Report email. Extract net sales for each store. Return JSON: { "stores": [{ "store_number": "326", "store_name": "...", "net_sales": 1234.56 }], "report_date": "2026-01-15" }. Store numbers to look for: 326, 451, 895, 1870, 2067, 2428, 2262, 2289.`,
-      messages: [{ role: 'user', content: email.body.slice(0, 5000) }],
+      system: `Parse this Wingstop "Daily Forecast vs Actuals Summary" report. For each store section (identified by store number like 0326, 0451, etc.), find the most recent date row that has a non-zero "Sales Actual" value. Extract that date and sales figure.
+
+Store numbers to extract: 326, 451, 895, 1870, 2067, 2428, 2262, 2289. Strip leading zeros from store numbers in your output.
+
+Return JSON only:
+{ "stores": [{ "store_number": "326", "store_name": "Coleman", "net_sales": 1234.56, "report_date": "2026-01-15" }] }
+
+If a store has no actual data yet, omit it. Use YYYY-MM-DD for dates.`,
+      messages: [{ role: 'user', content: pdfText.slice(0, 8000) }],
+      ...(BACKGROUND_EXTRA_BODY as any),
     })
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    const parsed = JSON.parse(text)
+    const parsed = parseJsonSafe(text)
 
     if (parsed.stores) {
       for (const store of parsed.stores) {
+        if (!store.report_date || !store.net_sales) continue
         await supabaseAdmin.from('sales_data').upsert({
-          report_date: parsed.report_date,
+          report_date: store.report_date,
           brand: 'wingstop',
           store_number: store.store_number,
           store_name: store.store_name,
@@ -363,20 +406,43 @@ async function parseWingstopSales(email: any) {
 
 async function parseMrPicklesSales(email: any) {
   try {
+    const attachments: { filename: string; data: Buffer }[] = email.attachments || []
+    const pdf = attachments.find((a: any) => a.filename.toLowerCase().endsWith('.pdf'))
+
+    if (!pdf) {
+      console.warn(`Mr. Pickle's email ${email.id} has no PDF attachments, skipping sales parse`)
+      return
+    }
+
+    const pdfText = await extractPdfTextFromBuffer(pdf.data)
+    if (!pdfText || pdfText.trim().length < 50) {
+      console.warn(`Mr. Pickle's PDF "${pdf.filename}" yielded no text`)
+      return
+    }
+
     const response = await anthropic.messages.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      system: `Parse this Mr. Pickle's Daily Sales Report email. Extract net sales for stores 405 (Fresno) and 1008 (Van Nuys). Return JSON: { "stores": [{ "store_number": "405", "store_name": "Fresno", "net_sales": 1234.56 }], "report_date": "2026-01-15" }.`,
-      messages: [{ role: 'user', content: email.body.slice(0, 5000) }],
+      system: `Parse this Mr. Pickle's Daily Sales Report. Extract the Net Sales total (from the Net Sales section, not Gross Sales) for each store. The report date is in the header (Date: MM/DD/YYYY).
+
+Stores to extract: 405 (Fresno / Blackstone) and 1008 (Van Nuys / Sepulveda). A single report may cover one or both stores.
+
+Return JSON only:
+{ "stores": [{ "store_number": "405", "store_name": "Fresno", "net_sales": 1234.56, "report_date": "2026-01-15" }] }
+
+Use YYYY-MM-DD for dates.`,
+      messages: [{ role: 'user', content: pdfText.slice(0, 8000) }],
+      ...(BACKGROUND_EXTRA_BODY as any),
     })
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    const parsed = JSON.parse(text)
+    const parsed = parseJsonSafe(text)
 
     if (parsed.stores) {
       for (const store of parsed.stores) {
+        if (!store.report_date || !store.net_sales) continue
         await supabaseAdmin.from('sales_data').upsert({
-          report_date: parsed.report_date,
+          report_date: store.report_date,
           brand: 'mrpickles',
           store_number: store.store_number,
           store_name: store.store_name,
