@@ -87,14 +87,15 @@ export async function refreshAccessToken(account: string): Promise<string> {
   return data.access_token
 }
 
-export async function fetchEmails(account: string, since: Date, maxResults = 20) {
+export async function fetchEmails(account: string, since: Date, maxResults = 20, extraQuery?: string) {
   const accessToken = await refreshAccessToken(account)
   const sinceEpoch = Math.floor(since.getTime() / 1000)
+  const q = extraQuery ? `after:${sinceEpoch} ${extraQuery}` : `after:${sinceEpoch}`
 
-  console.log(`[gmail] fetchEmails q=after:${sinceEpoch} (${since.toISOString()}) max=${maxResults}`)
+  console.log(`[gmail] fetchEmails q=${q} max=${maxResults}`)
 
   const listRes = await fetch(
-    `https://www.googleapis.com/gmail/v1/users/me/messages?q=after:${sinceEpoch}&maxResults=${maxResults}`,
+    `https://www.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   const listData = await listRes.json()

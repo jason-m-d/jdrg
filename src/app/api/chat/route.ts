@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
-import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, retrieveRelevantContextChunks, buildContext } from '@/lib/rag'
+import { retrieveRelevantChunks, getPinnedDocuments, getRelevantMemories, retrieveRelevantContextChunks, buildContext, retrieveRelevantDecisions } from '@/lib/rag'
 import { generateQueryEmbedding } from '@/lib/voyage'
 import { chunkAndEmbedContext } from '@/lib/embed-context'
 import { buildSystemPrompt } from '@/lib/system-prompt'
@@ -44,6 +44,10 @@ const ACTION_ITEM_TOOL: Anthropic.Messages.Tool = {
       item_id: {
         type: 'string',
         description: 'Action item ID for complete or update operations',
+      },
+      dismissal_reason: {
+        type: 'string',
+        description: 'Why the item was dismissed (e.g. "not relevant", "already handled"). Helps Crosby learn what to skip in the future.',
       },
     },
     required: ['operation'],
@@ -456,7 +460,7 @@ export async function POST(req: NextRequest) {
     : undefined
 
   // RAG retrieval + action items + artifacts + all projects + training context in parallel
-  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult, dashboardCardsResult, notificationRulesResult, uiPreferencesResult, trainingContext, notesResult, contactsResult] = await Promise.all([
+  const [chunks, pinnedDocs, memories, actionItemsResult, projectResult, contextChunks, artifactsResult, allProjectsResult, dashboardCardsResult, notificationRulesResult, uiPreferencesResult, trainingContext, notesResult, contactsResult, relevantDecisions] = await Promise.all([
     isSubstantiveMessage ? retrieveRelevantChunks(message, project_id, 8, 0.7, queryEmbedding).catch(e => { console.error('RAG retrieval failed:', e.message); return [] }) : Promise.resolve([]),
     project_id ? getPinnedDocuments(project_id) : Promise.resolve([]),
     isSubstantiveMessage ? getRelevantMemories(message) : Promise.resolve([]),
@@ -480,6 +484,7 @@ export async function POST(req: NextRequest) {
     isSubstantiveMessage ? buildFewShotBlock(message, queryEmbedding).catch(e => { console.error('Training context failed:', e.message); return null }) : Promise.resolve(null),
     supabaseAdmin.from('notes').select('*').or('expires_at.is.null,expires_at.gt.' + new Date().toISOString()).order('created_at', { ascending: false }),
     supabaseAdmin.from('contacts').select('*').order('name'),
+    isSubstantiveMessage ? retrieveRelevantDecisions(message, 5, 0.7, queryEmbedding).catch(e => { console.error('Decision retrieval failed:', e.message); return [] }) : Promise.resolve([]),
   ])
 
   const actionItems: ActionItem[] = actionItemsResult.data || []
@@ -508,6 +513,7 @@ export async function POST(req: NextRequest) {
     previousSessionSummary: previousSummary,
     notes: (notesResult.data || []) as Note[],
     contacts: (contactsResult.data || []) as Contact[],
+    decisions: relevantDecisions.length > 0 ? relevantDecisions : undefined,
   })
 
   // Build messages array for Claude
@@ -888,9 +894,12 @@ async function executeActionItemTool(
     case 'dismiss': {
       if (!input.item_id) return { status: 'error', message: 'item_id is required' }
 
+      const dismissUpdate: Record<string, any> = { status: 'dismissed', updated_at: new Date().toISOString() }
+      if ((input as any).dismissal_reason) dismissUpdate.dismissal_reason = (input as any).dismissal_reason
+
       const { data, error } = await supabaseAdmin
         .from('action_items')
-        .update({ status: 'dismissed', updated_at: new Date().toISOString() })
+        .update(dismissUpdate)
         .eq('id', input.item_id)
         .select()
         .single()
@@ -1633,6 +1642,12 @@ async function summarizeSession(sessionId: string, convId: string) {
 
   // Extract notepad entries from summary
   extractNotepadEntriesFromSummary(summary).catch(e => console.error('Notepad extraction failed:', e))
+
+  // Extract commitments Jason made during this session
+  extractCommitmentsFromSession(sessionId, convId, transcript).catch(e => console.error('Commitment extraction failed:', e))
+
+  // Extract decisions Jason made during this session
+  extractDecisionsFromSession(sessionId, convId, transcript).catch(e => console.error('Decision extraction failed:', e))
 }
 
 async function extractNotepadEntriesFromSummary(summary: string) {
@@ -1690,6 +1705,169 @@ async function extractNotepadEntriesFromSummary(summary: string) {
         title: entry.title || null,
         expires_at: expiresAt,
       })
+    }
+  }
+}
+
+async function extractCommitmentsFromSession(sessionId: string, convId: string, transcript: string) {
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+
+  const commitmentSchema = {
+    type: 'object',
+    properties: {
+      commitments: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            commitment_text: { type: 'string' },
+            target_date: { type: ['string', 'null'] },
+            related_contact: { type: ['string', 'null'] },
+          },
+          required: ['commitment_text', 'target_date', 'related_contact'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['commitments'],
+    additionalProperties: false,
+  }
+
+  const response = await anthropicClient.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    max_tokens: 400,
+    system: `Extract commitments that JASON (the user) made during this conversation. Only extract things Jason said HE would do - not things Crosby (the AI) offered or did. Look for phrases like "I'll", "I need to", "I'm going to", "let me", "I should", "remind me to".
+
+Examples of commitments: "I'll call Roger tomorrow", "I need to review the lease by Friday", "I'm going to email the franchise rep".
+
+Do NOT extract:
+- Things Crosby said it would do (drafting emails, creating items, etc.)
+- Vague intentions without a clear action
+- Things already captured as action items in the conversation
+
+Today is ${new Date().toISOString().split('T')[0]}. Convert relative dates to absolute (e.g. "tomorrow" -> actual date, "next week" -> Monday of next week).
+
+Return JSON: {"commitments": [{"commitment_text": "...", "target_date": "YYYY-MM-DD or null", "related_contact": "person name or null"}]}
+Return {"commitments": []} if none found.`,
+    messages: [{ role: 'user', content: transcript.slice(0, 6000) }],
+    ...({
+      extra_body: {
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: commitmentSchema } },
+      },
+    } as any),
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  let parsed: any
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = parseJSON(text)
+  }
+  if (!parsed.commitments || parsed.commitments.length === 0) return
+
+  for (const c of parsed.commitments) {
+    if (c.commitment_text) {
+      await supabaseAdmin.from('commitments').insert({
+        session_id: sessionId,
+        conversation_id: convId,
+        commitment_text: c.commitment_text,
+        target_date: c.target_date || null,
+        related_contact: c.related_contact || null,
+      })
+    }
+  }
+}
+
+async function extractDecisionsFromSession(sessionId: string, convId: string, transcript: string) {
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+  const { generateEmbedding } = await import('@/lib/voyage')
+
+  const decisionSchema = {
+    type: 'object',
+    properties: {
+      decisions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            decision_text: { type: 'string' },
+            context: { type: ['string', 'null'] },
+            alternatives_considered: { type: ['string', 'null'] },
+          },
+          required: ['decision_text', 'context', 'alternatives_considered'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['decisions'],
+    additionalProperties: false,
+  }
+
+  const response = await anthropicClient.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    max_tokens: 600,
+    system: `Extract decisions that JASON (the user) made during this conversation. Decisions are choices, directions, policies, or strategic calls - not tasks or commitments.
+
+Examples of decisions:
+- "Let's go with vendor X for the POS upgrade"
+- "We're not renewing the lease at 1008"
+- "I want to hold off on hiring until Q3"
+- "We'll run the promo only on weekdays"
+
+Do NOT extract:
+- Tasks or action items (those are tracked separately)
+- Commitments to do something (also tracked separately)
+- Things Crosby suggested that Jason didn't explicitly agree to
+- Vague preferences or off-hand comments
+
+For each decision, include:
+- decision_text: The decision itself, stated clearly
+- context: Why Jason made this decision (if discussed)
+- alternatives_considered: Other options that were discussed but not chosen (if any)
+
+Return JSON: {"decisions": [{"decision_text": "...", "context": "...", "alternatives_considered": "..."}]}
+Return {"decisions": []} if none found.`,
+    messages: [{ role: 'user', content: transcript.slice(0, 6000) }],
+    ...({
+      extra_body: {
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: decisionSchema } },
+      },
+    } as any),
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  let parsed: any
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    parsed = parseJSON(text)
+  }
+  if (!parsed.decisions || parsed.decisions.length === 0) return
+
+  for (const d of parsed.decisions) {
+    if (!d.decision_text) continue
+
+    // Insert decision
+    const { data: inserted } = await supabaseAdmin.from('decisions').insert({
+      session_id: sessionId,
+      conversation_id: convId,
+      decision_text: d.decision_text,
+      context: d.context || null,
+      alternatives_considered: d.alternatives_considered || null,
+    }).select('id').single()
+
+    // Generate and store embedding (fire-and-forget)
+    if (inserted) {
+      generateEmbedding(`${d.decision_text}${d.context ? ` — ${d.context}` : ''}`)
+        .then(embedding => supabaseAdmin.from('decisions').update({ embedding }).eq('id', inserted.id))
+        .catch(e => console.error('Decision embedding failed:', e))
     }
   }
 }

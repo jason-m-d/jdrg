@@ -82,9 +82,11 @@ const WINGSTOP_SALES_SCHEMA = {
           store_number: { type: 'string' },
           store_name: { type: 'string' },
           net_sales: { type: 'number' },
+          forecast_sales: { type: ['number', 'null'] },
+          budget_sales: { type: ['number', 'null'] },
           report_date: { type: 'string' },
         },
-        required: ['store_number', 'store_name', 'net_sales', 'report_date'],
+        required: ['store_number', 'store_name', 'net_sales', 'forecast_sales', 'budget_sales', 'report_date'],
         additionalProperties: false,
       },
     },
@@ -215,26 +217,33 @@ export async function POST(req: NextRequest) {
 
       const since = scan?.last_scanned_at ? new Date(scan.last_scanned_at) : new Date(Date.now() - 3600000) // default 1 hour ago
 
+      // PRIORITY: Fetch and process sales emails first with targeted queries
+      const salesQueries = [
+        { q: 'subject:"NBO Daily Reports" subject:DeMayo', brand: 'wingstop' },
+        { q: 'subject:[MP] subject:"Daily Sales"', brand: 'mrpickles' },
+      ]
+      for (const { q, brand } of salesQueries) {
+        try {
+          const salesEmails = await fetchEmails(account, since, 5, q)
+          console.log(`[email-scan] SALES ${brand}: found ${salesEmails.length} emails`)
+          for (const email of salesEmails) {
+            console.log(`[email-scan] SALES ${brand}: "${email.subject}" (${email.attachments?.length || 0} PDFs)`)
+            if (brand === 'wingstop') {
+              await parseWingstopSales(email)
+            } else {
+              await parseMrPicklesSales(email)
+            }
+            console.log(`[email-scan] SALES ${brand}: parsing complete`)
+          }
+        } catch (e: any) {
+          console.error(`[email-scan] SALES_ERR ${brand}: ${e.message?.slice(0, 150)}`)
+        }
+      }
+
+      // Now fetch regular emails for action item extraction
       const emails = await fetchEmails(account, since, 15)
       console.log(`[email-scan] ${account}: fetched ${emails.length} emails since ${since.toISOString()}`)
       let itemsFound = 0
-
-      // PRIORITY: Process sales emails first before anything else
-      for (const email of emails) {
-        try {
-          if (email.subject.includes('NBO Daily Reports') && email.subject.includes('DeMayo')) {
-            console.log(`[email-scan] SALES: Wingstop email found, ${email.attachments?.length || 0} attachments`)
-            await parseWingstopSales(email)
-            console.log(`[email-scan] SALES: Wingstop parsing complete`)
-          } else if (email.subject.includes('[MP]') && email.subject.includes('Daily Sales')) {
-            console.log(`[email-scan] SALES: Mr. Pickle's email found, ${email.attachments?.length || 0} attachments`)
-            await parseMrPicklesSales(email)
-            console.log(`[email-scan] SALES: Mr. Pickle's parsing complete`)
-          }
-        } catch (e: any) {
-          console.error(`[email-scan] SALES_ERR: ${e.name}: ${e.message?.slice(0, 150)}`)
-        }
-      }
 
       for (const email of emails) {
 
@@ -558,14 +567,14 @@ async function parseWingstopSales(email: any) {
     const response = await anthropic.messages.create({
       model: 'google/gemini-3.1-flash-lite-preview',
       max_tokens: 1024,
-      system: `Parse this Wingstop "Daily Forecast vs Actuals Summary" report. For each store section (identified by store number like 0326, 0451, etc.), find the most recent date row that has a non-zero "Sales Actual" value. Extract that date and sales figure.
+      system: `Parse this Wingstop "Daily Forecast vs Actuals Summary" report. For each store section (identified by store number like 0326, 0451, etc.), find the most recent date row that has a non-zero "Sales Actual" value. Extract that date, the sales actual figure, the forecast figure (often labeled "Sales Forecast" or "Forecast"), and the budget figure (often labeled "Sales Budget" or "Budget") from the SAME date row.
 
 Store numbers to extract: 326, 451, 895, 1870, 2067, 2428, 2262, 2289. Strip leading zeros from store numbers in your output.
 
 Return JSON only:
-{ "stores": [{ "store_number": "326", "store_name": "Coleman", "net_sales": 1234.56, "report_date": "2026-01-15" }] }
+{ "stores": [{ "store_number": "326", "store_name": "Coleman", "net_sales": 1234.56, "forecast_sales": 1300.00, "budget_sales": 1250.00, "report_date": "2026-01-15" }] }
 
-If a store has no actual data yet, omit it. Use YYYY-MM-DD for dates.`,
+If a store has no actual data yet, omit it. If forecast or budget values aren't present, use null. Use YYYY-MM-DD for dates.`,
       messages: [{ role: 'user', content: pdfText.slice(0, 8000) }],
       ...(jsonExtraBody(WINGSTOP_SALES_SCHEMA) as any),
     })
@@ -577,13 +586,15 @@ If a store has no actual data yet, omit it. Use YYYY-MM-DD for dates.`,
     if (parsed.stores) {
       for (const store of parsed.stores) {
         if (!store.report_date || !store.net_sales) continue
-        console.log(`[wingstop-sales] Upserting store ${store.store_number} (${store.store_name}): $${store.net_sales} on ${store.report_date}`)
+        console.log(`[wingstop-sales] Upserting store ${store.store_number} (${store.store_name}): $${store.net_sales} (forecast: ${store.forecast_sales ?? 'n/a'}, budget: ${store.budget_sales ?? 'n/a'}) on ${store.report_date}`)
         await supabaseAdmin.from('sales_data').upsert({
           report_date: store.report_date,
           brand: 'wingstop',
           store_number: store.store_number,
           store_name: store.store_name,
           net_sales: store.net_sales,
+          forecast_sales: store.forecast_sales ?? null,
+          budget_sales: store.budget_sales ?? null,
           raw_email_id: email.id,
         }, { onConflict: 'report_date,brand,store_number' })
       }
