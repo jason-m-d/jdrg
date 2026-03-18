@@ -1301,7 +1301,8 @@ export async function POST(req: NextRequest) {
           // Catch stream-level errors (auth failures, rate limits, OpenRouter errors)
           // that don't surface through the async iterator
           response.on('error', (err) => {
-            console.error('Stream-level error:', err)
+            console.error('Stream-level error:', err?.message || err)
+            throw err
           })
 
           // Collect content blocks for this turn
