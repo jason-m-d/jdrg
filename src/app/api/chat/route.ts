@@ -10,6 +10,8 @@ import { buildFewShotBlock, storeTrainingExample, getTrainingStats } from '@/lib
 import { fetchEmails } from '@/lib/gmail'
 import type { ActionItem, Artifact, DashboardCard, NotificationRule, Bookmark, UIPreference, Note, Contact } from '@/lib/types'
 import { sendPushToAll } from '@/lib/push'
+import { spawnBackgroundJob } from '@/lib/background-jobs'
+import { getMainConversation } from '@/lib/proactive'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
@@ -403,6 +405,30 @@ const SEARCH_WEB_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const SPAWN_BACKGROUND_JOB_TOOL: Anthropic.Messages.Tool = {
+  name: 'spawn_background_job',
+  description: `Spawn an async background job for tasks that would take a long time to research or analyze - deep dives into topics, document compilation, competitive analysis, multi-step research. Use this when Jason asks for something that would require significant digging. The job runs in the background and posts results back to chat when done. Respond immediately with a brief confirmation that you're on it.`,
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      job_type: {
+        type: 'string',
+        enum: ['research', 'analysis', 'briefing', 'sop', 'overnight_build'],
+        description: 'Type of job. research/analysis/sop use Claude Sonnet; briefing/overnight_build use Gemini Flash.',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Detailed prompt for the background agent. Include all relevant context - what to research, what to look for, what format to return results in. Be specific.',
+      },
+      topic_summary: {
+        type: 'string',
+        description: 'Short (3-6 word) description of what you\'re researching, for the push notification. e.g. "lease renewal terms", "Store 895 performance"',
+      },
+    },
+    required: ['job_type', 'prompt', 'topic_summary'],
+  },
+}
+
 async function executeWebSearch(query: string): Promise<string> {
   const searchClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
   const response = await searchClient.messages.create({
@@ -540,7 +566,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL],
             ...({ extra_body: { models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'], provider: { sort: 'latency' } } } as any),
           })
 
@@ -600,6 +626,7 @@ export async function POST(req: NextRequest) {
                   manage_contacts: 'Updating contacts',
                   search_web: `Searching the web`,
                   manage_action_items: 'Managing action items',
+                  spawn_background_job: 'Starting background research',
                 }
                 const statusLabel = toolStatusLabels[currentToolUse.name] || 'Working'
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool_status: statusLabel })}\n\n`))
@@ -718,6 +745,30 @@ export async function POST(req: NextRequest) {
                   }
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     web_search: { query: toolInput.query, result: toolResult.result || toolResult.message },
+                  })}\n\n`))
+                } else if (currentToolUse.name === 'spawn_background_job') {
+                  try {
+                    const job = await spawnBackgroundJob(
+                      convId,
+                      toolInput.job_type || 'research',
+                      toolInput.prompt,
+                      'user',
+                      { topic_summary: toolInput.topic_summary }
+                    )
+                    toolResult = {
+                      status: 'spawned',
+                      job_id: job.id,
+                      message: `Background job started. I'll dig into "${toolInput.topic_summary}" and post results in this chat when done.`,
+                    }
+                  } catch (e: any) {
+                    toolResult = { status: 'error', message: e.message }
+                  }
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    background_job: {
+                      status: toolResult.status,
+                      topic: toolInput.topic_summary,
+                      job_id: toolResult.job_id,
+                    },
                   })}\n\n`))
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
@@ -1648,6 +1699,9 @@ async function summarizeSession(sessionId: string, convId: string) {
 
   // Extract decisions Jason made during this session
   extractDecisionsFromSession(sessionId, convId, transcript).catch(e => console.error('Decision extraction failed:', e))
+
+  // Phase 3: Detect SOPs - check if Jason explained a process step-by-step
+  detectAndTrackProcesses(convId, transcript, summary).catch(e => console.error('SOP detection failed:', e))
 }
 
 async function extractNotepadEntriesFromSummary(summary: string) {
@@ -2128,5 +2182,120 @@ Return raw JSON only:
     }
   } catch (e) {
     console.error('Memory extraction failed:', e)
+  }
+}
+
+// --- Phase 3: SOP Detection ---
+const SOP_DETECTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    process_detected: { type: 'boolean' },
+    process_name: { type: 'string' },
+    step_count: { type: 'number' },
+  },
+  required: ['process_detected', 'process_name', 'step_count'],
+  additionalProperties: false,
+}
+
+async function detectAndTrackProcesses(convId: string, transcript: string, summary: string) {
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
+
+  // Detect if a process was explained step-by-step
+  const response = await anthropicClient.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    max_tokens: 200,
+    system: `Detect if Jason DeMayo explained a business process, procedure, or workflow step-by-step during this conversation. Examples: how they handle vendor invoices, how they open a new store, how they onboard GMs, how they handle a health inspection. NOT generic discussions - only when he clearly described steps/stages.
+
+Return JSON: {"process_detected": true/false, "process_name": "Name of the process (e.g. 'New Store Opening Checklist')", "step_count": <estimated number of steps described>}
+If no process detected: {"process_detected": false, "process_name": "", "step_count": 0}`,
+    messages: [{ role: 'user', content: `Summary:\n${summary}\n\nKey transcript excerpts:\n${transcript.slice(0, 3000)}` }],
+    ...({
+      extra_body: {
+        models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'],
+        provider: { sort: 'price' },
+        plugins: [{ id: 'response-healing' }],
+        response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: SOP_DETECTION_SCHEMA } },
+      },
+    } as any),
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  let parsed: any
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return
+  }
+
+  if (!parsed.process_detected || !parsed.process_name) return
+
+  // Check if we already have this process in the DB
+  const { data: existingProcesses } = await supabaseAdmin
+    .from('detected_processes')
+    .select('id, times_explained, conversation_ids, sop_drafted, step_count')
+    .ilike('process_name', `%${parsed.process_name.slice(0, 30)}%`)
+    .limit(1)
+
+  if (existingProcesses && existingProcesses.length > 0) {
+    const existing = existingProcesses[0]
+
+    // Update: increment count and add conversation
+    const updatedConvIds = [...(existing.conversation_ids || []), convId]
+    const newCount = existing.times_explained + 1
+
+    await supabaseAdmin
+      .from('detected_processes')
+      .update({
+        times_explained: newCount,
+        conversation_ids: updatedConvIds,
+        last_explained_at: new Date().toISOString(),
+        step_count: Math.max(existing.step_count || 0, parsed.step_count),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+
+    // If explained 2+ times and SOP not yet drafted, spawn a job
+    if (newCount >= 2 && !existing.sop_drafted) {
+      const mainConvId = await getMainConversation()
+      const sopPrompt = `Draft a Standard Operating Procedure (SOP) document for the following business process: "${parsed.process_name}"
+
+This process has been explained ${newCount} times in conversations. Pull together everything you know about it from conversation history, project context, and documents.
+
+The SOP should include:
+1. Purpose and scope
+2. Step-by-step procedure (numbered)
+3. Who is responsible for each step
+4. Any tools, systems, or resources needed
+5. Common pitfalls or notes
+
+After creating the content, save it as a freeform artifact named "SOP: ${parsed.process_name}".
+
+Then write a brief message to Jason saying something like: "I noticed you've explained the ${parsed.process_name} process a few times across different conversations. I drafted an SOP based on those discussions - take a look and let me know if it needs adjustments."`
+
+      const job = await spawnBackgroundJob(mainConvId, 'sop', sopPrompt, 'sop_detection', {
+        process_name: parsed.process_name,
+        times_explained: newCount,
+        detected_process_id: existing.id,
+      })
+
+      // Mark as SOP drafted
+      await supabaseAdmin
+        .from('detected_processes')
+        .update({ sop_drafted: true, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+
+      console.log(`SOP detection: spawned SOP draft job ${job.id} for "${parsed.process_name}"`)
+    }
+  } else {
+    // First time seeing this process - insert it
+    await supabaseAdmin.from('detected_processes').insert({
+      process_name: parsed.process_name,
+      conversation_ids: [convId],
+      step_count: parsed.step_count,
+      times_explained: 1,
+      last_explained_at: new Date().toISOString(),
+    })
+
+    console.log(`SOP detection: first instance of process "${parsed.process_name}" recorded`)
   }
 }

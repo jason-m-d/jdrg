@@ -136,6 +136,40 @@ export async function retrieveRelevantContextChunks(
   return chunks
 }
 
+interface DecisionWithSimilarity {
+  id: string
+  session_id: string | null
+  conversation_id: string | null
+  project_id: string | null
+  decision_text: string
+  context: string | null
+  alternatives_considered: string | null
+  decided_at: string
+  similarity: number
+}
+
+export async function retrieveRelevantDecisions(
+  query: string,
+  limit = 5,
+  threshold = 0.7,
+  precomputedEmbedding?: number[]
+): Promise<DecisionWithSimilarity[]> {
+  const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
+
+  const { data, error } = await supabaseAdmin.rpc('match_decisions', {
+    query_embedding: embedding,
+    match_threshold: threshold,
+    match_count: limit,
+  })
+
+  if (error) {
+    console.error('Error retrieving decisions:', error)
+    return []
+  }
+
+  return (data as DecisionWithSimilarity[]) || []
+}
+
 export function buildContext(
   chunks: ChunkWithMeta[],
   pinnedDocs: Document[],

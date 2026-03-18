@@ -78,8 +78,49 @@ export interface ActionItem {
   priority: 'high' | 'medium' | 'low'
   due_date: string | null
   confidence: number | null
+  dismissal_reason: string | null
   snoozed_until: string | null
   last_surfaced_at: string | null
+  last_nudged_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Decision {
+  id: string
+  session_id: string | null
+  conversation_id: string | null
+  project_id: string | null
+  decision_text: string
+  context: string | null
+  alternatives_considered: string | null
+  decided_at: string
+  embedding: number[] | null
+}
+
+export interface Commitment {
+  id: string
+  session_id: string | null
+  conversation_id: string | null
+  commitment_text: string
+  target_date: string | null
+  related_contact: string | null
+  status: 'open' | 'fulfilled' | 'expired'
+  created_at: string
+  fulfilled_at: string | null
+}
+
+export interface EmailThread {
+  id: string
+  gmail_thread_id: string
+  gmail_account: string
+  subject: string | null
+  last_sender: string | null
+  last_sender_email: string | null
+  last_message_date: string | null
+  direction: 'inbound' | 'outbound'
+  needs_response: boolean
+  response_detected: boolean
   created_at: string
   updated_at: string
 }
@@ -119,6 +160,8 @@ export interface SalesData {
   store_number: string | null
   store_name: string | null
   net_sales: number | null
+  forecast_sales: number | null
+  budget_sales: number | null
   transaction_count: number | null
   raw_email_id: string | null
   parsed_at: string

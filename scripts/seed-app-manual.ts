@@ -211,6 +211,26 @@ The teach-me quiz, label feedback, and stats.
 - The more feedback Jason gives, the better you get at identifying real action items vs noise
 - Training context is automatically injected into your system prompt as "Learned Preferences"
 
+### 13. Background Jobs (spawn_background_job)
+Spawn async research or analysis jobs that run in the background and post results to chat.
+
+**When to use:** When Jason asks for something that requires deep investigation - competitive research, document compilation, multi-source analysis, anything that would take several minutes of focused work.
+
+**How it works:**
+1. Use spawn_background_job with a detailed prompt describing what to research and how to format the results
+2. Respond immediately to Jason: "On it - I'll look into [topic] and ping you when I'm done."
+3. The job runs independently with access to RAG, emails, memories, and action items
+4. Results are posted to chat automatically, with a push notification
+
+**Job types:**
+- research/analysis/sop - use Claude Sonnet (complex multi-step work)
+- briefing/overnight_build - use Gemini Flash (simpler builds)
+
+**Connections to other features:**
+- Background jobs can create artifacts as part of their output
+- The overnight build system also spawns background jobs automatically
+- Auto-triggers (deadline research, sales anomalies) use the same infrastructure
+
 ---
 
 ## Sessions, Notepad, and Contacts
@@ -280,6 +300,34 @@ Generated when Jason opens the app. Time-aware (morning/midday/evening/weekend).
 ### Alert System
 After email scans, if there are new high-priority action items or stores significantly under sales target (<70%), an alert gets posted to the main conversation.
 
+### Nudge System
+Runs every 3 hours. Checks for things that need Jason's attention and sends a brief nudge message to the main conversation (with push notification). Looks at:
+- **Stale action items** — pending/approved items with no activity for 5+ days
+- **Due/overdue action items** — items with due dates approaching or past
+- **Open commitments** — things Jason said he'd do that are coming due or overdue
+- **Unanswered inbound emails** — emails from real people (not automated) that expect a reply, unanswered for 2+ days
+- **Unanswered outbound emails** — emails Jason sent that haven't gotten a reply in 3+ days
+
+Anti-spam: won't send more than one nudge every 2 hours. Picks the top 3-5 most important items. Old commitments (7+ days past target date) auto-expire.
+
+### Email Thread Tracking
+The email scanner tracks conversation threads to detect unanswered emails. For each non-automated email:
+- If Jason sent it: marks the thread as having Jason's response
+- If someone else sent it: AI classifies whether it needs a response
+- Tracks direction (inbound/outbound), last sender, and whether a response was detected
+This feeds into the nudge system to surface emails that fell through the cracks.
+
+### Commitment Tracking
+When a chat session ends and gets summarized, the system automatically extracts commitments Jason made during the conversation. These are things Jason said HE would do (not things Crosby did). Examples: "I'll call Roger tomorrow", "I need to review the lease by Friday".
+
+Commitments have:
+- The commitment text
+- A target date (if mentioned — relative dates are converted to absolute)
+- A related contact (if mentioned)
+- Status: open, fulfilled, or expired
+
+Commitments auto-expire 7 days after their target date. The nudge system surfaces open commitments that are approaching or past their target date.
+
 ---
 
 ## How RAG (Document Search) Works
@@ -308,10 +356,12 @@ Documents can be uploaded via the Documents page or the paperclip icon in chat. 
 Crosby routes all AI calls through OpenRouter, which provides automatic fallback and model switching.
 
 ### Chat Model
-The main chat uses anthropic/claude-sonnet-4.6:exacto by default (the :exacto suffix prioritizes providers with better tool-calling accuracy, which matters since Crosby uses 14 tools). Falls back to google/gemini-3.1-pro-preview if unavailable. Routed for lowest latency since Jason is waiting.
+The main chat uses anthropic/claude-sonnet-4.6:exacto by default (the :exacto suffix prioritizes providers with better tool-calling accuracy, which matters since Crosby uses 15 tools). Falls back to google/gemini-3.1-pro-preview if unavailable. Routed for lowest latency since Jason is waiting.
 
 ### Background Jobs Model
-All background jobs — email scanning, sales data parsing, morning briefings, session greetings, memory extraction, session summarization, notepad extraction, and training rule extraction — use google/gemini-3.1-flash-lite-preview. Falls back to google/gemini-3-flash-preview. Routed for lowest price since no one is waiting.
+Standard background jobs — email scanning, sales data parsing, morning briefings, session greetings, memory extraction, session summarization, notepad extraction, and training rule extraction — use google/gemini-3.1-flash-lite-preview. Falls back to google/gemini-3-flash-preview. Routed for lowest price since no one is waiting.
+
+Background research jobs (spawned via spawn_background_job or auto-triggers) use claude-sonnet-4.6:exacto for complex types (research, analysis, sop) and Gemini Flash Lite for simple builds (briefing, overnight_build).
 
 ### Web Search
 The search_web tool uses perplexity/sonar-pro-search via a separate client call. It has live web access and returns cited results.
@@ -358,6 +408,114 @@ Be genuinely helpful, not performatively helpful. The goal is to make Jason's li
 **Tone for suggestions:**
 - Brief and natural: "Want me to set up a notification rule for emails from Roger? You've been checking those a lot."
 - Not: "I notice you've searched for emails from Roger 3 times. I can create a notification rule that will automatically alert you when new emails arrive from this sender. Would you like me to do that?"
+
+---
+
+## Phase 2 Features — Intelligence Layer
+
+### "While You Were Away" Digest
+When Jason returns after 4+ hours away, the session greeting includes a digest of what happened while he was gone. The digest covers:
+- New action items created (with source: email or chat)
+- New sales data parsed
+- Nudges that were sent
+- Approaching commitments (due within 3 days)
+- Unanswered inbound emails
+
+The digest is woven into the greeting naturally, not listed as a separate section. If a morning briefing was already generated today, sales data is skipped from the digest to avoid repetition.
+
+### Forecast vs Actuals Tracking (Wingstop)
+The daily sales email parser now captures forecast and budget numbers alongside actuals from the Wingstop "Forecast vs Actuals" PDF. This enables:
+- **Week-to-date comparison**: The nudge system (Tue-Fri) calculates WTD actual vs forecast per store. Stores 15%+ below WTD forecast with 2+ days remaining get flagged.
+- Forecast and budget data is stored in the sales_data table and available for ad-hoc analysis.
+
+### Dismissal Learning
+When action items are dismissed, the dismissal reason is tracked. The nudge system runs a weekly analysis of dismissal patterns:
+- Looks at dismissed items from the last 30 days (needs 5+ items)
+- Uses AI to identify consistent patterns (e.g. "Jason always dismisses newsletter emails")
+- Creates training rules (category: never_flag) to prevent similar items from being created
+- Announces new learned rules to Jason in the main conversation with a 🧠 Learning Update
+
+This is a self-improving loop: more dismissals (especially with reasons) = better filtering over time.
+
+### Decision Tracking
+When a chat session ends, the system extracts decisions Jason made during the conversation. Decisions are strategic choices, directions, or policies - not tasks or commitments.
+
+How it works:
+- After each session summary, decisions are extracted using AI
+- Each decision is stored with context (why) and alternatives considered
+- Decisions are embedded for vector search
+- When Jason sends a message, relevant past decisions surface in the system prompt under "Past Decisions"
+- This prevents Crosby from re-asking questions Jason already answered and helps maintain consistency
+
+The nudge system also checks recent decisions (last 14 days) for time-sensitive language (deadline, expires, trial period, etc.) and surfaces them as follow-up candidates.
+
+---
+
+## Phase 3 Features — Agentic Layer
+
+### Background Jobs System
+Crosby can now spawn async background jobs to do deep research or analysis without blocking the conversation. When Jason asks for something that would take significant investigation, Crosby can start a job and respond immediately ("On it - I'll dig into that and ping you when I'm done"). The job runs in the background and posts its results directly to chat when complete, along with a push notification.
+
+#### How to use the spawn_background_job tool
+- Use this when Jason asks for deep research, document compilation, multi-step analysis, or anything that would require several minutes of work
+- Specify job_type: 'research' or 'analysis' for complex tasks (these use Claude Sonnet), 'briefing' or 'overnight_build' for simpler builds (use Gemini Flash)
+- Write a detailed, specific prompt — the background agent works independently with no user present
+- Include a short topic_summary for the push notification (e.g. "lease renewal terms", "Store 895 performance")
+- After spawning, respond to Jason briefly: confirm what you're looking into and that you'll ping him when it's done
+
+Background jobs have access to the same context as the main chat: RAG search over documents and project context, memories, action items, and email search.
+
+### Auto-Triggered Background Research
+The system automatically spawns background research jobs when it detects situations that warrant deep investigation. These happen without Jason having to ask.
+
+#### Deadline Research (Nudge Cron)
+When the nudge cron finds action items or commitments with deadlines in the next 3 days, it automatically spawns a research job that:
+- Pulls relevant emails about each item
+- Checks project context and documents for background
+- Compiles a briefing with current status, key contacts, and what needs to happen next
+
+This fires at most once every 24 hours (to avoid spam).
+
+#### Sales Anomaly Detection (Email Scan)
+After each email scan, the system calculates each store's 4-week rolling average for the same day of week. If a store's sales today are 25%+ below that average, it spawns a research job that:
+- Searches emails mentioning that store for any recent context (staffing, closures, issues)
+- Checks action items and project context related to the store
+- Generates analysis explaining what's known and possible causes
+
+Cooldown: one job per store per day. Maximum 5 auto-triggered jobs total per day across all trigger types.
+
+#### Rate Limiting & Transparency
+All auto-triggered jobs are logged in the auto_trigger_log table with trigger type, trigger key (e.g. store number or item ID), and the spawned job ID. This prevents duplicates and provides a full audit trail of what Crosby is doing unprompted.
+
+### Overnight Builds (2am Cron)
+Every night at 2am, a cron job reviews the last 48 hours of conversations looking for opportunities to proactively build something useful. It looks for:
+- Explicit wishes: "I wish I had...", "it would be nice if...", "I need a way to..."
+- Repeated questions: Jason asking about the same thing 3+ times in 48 hours
+- Pain points: frustration with a manual process or having to look something up repeatedly
+
+If it finds an actionable opportunity, it spawns a background job to build it — typically an artifact (checklist, template, reference doc, or SOP). Results get posted to chat, and the "while you were away" digest will mention what was built.
+
+Rate limiting: max 2 overnight builds per week. The system tracks what it's already built to avoid rebuilding the same thing.
+
+### SOP Auto-Drafting
+The system detects when Jason explains a business process step-by-step during a conversation. Examples: how they handle vendor invoices, how they open a new store, how they onboard GMs, how they handle a health inspection.
+
+How it works:
+1. After each session is summarized, an AI step checks if a process was explained
+2. If so, the process is recorded in the detected_processes table with name, conversation ID, and step count
+3. When the same process has been explained 2+ times across different conversations, a background job is automatically spawned to:
+   - Pull all conversation excerpts where it was discussed
+   - Synthesize them into a clean SOP document
+   - Save it as a freeform artifact ("SOP: [Process Name]")
+   - Post a message: "I noticed you've explained the [process] process a few times. I drafted an SOP - take a look and let me know if it needs adjustments."
+
+SOPs appear in the artifact panel (right side) where they can be reviewed and edited. If the SOP is useful long-term, it can be saved as a permanent document.
+
+### New Chat Tool: spawn_background_job
+A new tool is available in the main chat:
+- **spawn_background_job**: Start an async research or analysis job. Use when a task would take significant investigation. The job runs independently and posts results back to chat when done.
+
+The tool accepts: job_type (research/analysis/briefing/sop/overnight_build), a detailed prompt for the background agent, and a short topic_summary for the push notification.
 `
 
 async function seedAppManual() {

@@ -22,10 +22,19 @@ All AI calls go through OpenRouter (`ANTHROPIC_BASE_URL`). Do not call Anthropic
 
 - **Main chat:** `anthropic/claude-sonnet-4.6:exacto` (`:exacto` suffix = prefer providers with better tool-calling accuracy). Fallback array: `["anthropic/claude-sonnet-4.6:exacto", "google/gemini-3.1-pro-preview"]`. Provider sort: `latency`.
 - **Background jobs** (email scan, morning briefing, session greeting, memory extraction, session summarization, notepad extraction, training rules): `google/gemini-3.1-flash-lite-preview`. Fallback: `google/gemini-3-flash-preview`. Provider sort: `price`.
-- **Web search:** `perplexity/sonar-pro-search` via a separate client call inside `executeWebSearch()`.
+- **Web search:** `perplexity/sonar-pro-search` via a separate client call inside `executeWebSearch()`. Provider sort: `price`.
 - **PDF OCR fallback:** `google/gemini-2.0-flash-001` via Anthropic document block format.
 - Pass fallbacks via `extra_body: { models: [...], provider: { sort: "..." } }` — NOT via `X-OR-Models` header (that's undocumented and was removed).
+- For structured JSON output in background jobs, use `response_format: { type: 'json_schema', json_schema: { name: 'response', strict: true, schema: {...} } }` plus `plugins: [{ id: 'response-healing' }]` in `extra_body`. The response-healing plugin fixes malformed JSON from models.
 - System prompt uses `cache_control: { type: "ephemeral" }` on the main chat stream to reduce token cost on the 10-20KB prompt.
+
+## Adding New AI Calls
+- All new AI calls MUST go through OpenRouter (`ANTHROPIC_BASE_URL`). Never call a provider directly.
+- For new background jobs/crons: use `google/gemini-3.1-flash-lite-preview` with `provider: { sort: 'price' }` and fallback to `google/gemini-3-flash-preview`.
+- For complex multi-step research or agentic tasks: use `anthropic/claude-sonnet-4.6:exacto` with `provider: { sort: 'latency' }`.
+- If the call expects JSON output: always use `response_format` with `json_schema` plus the `response-healing` plugin in `extra_body`.
+- If the call sends the same system prompt repeatedly (batch processing): wrap system in `cache_control: { type: 'ephemeral' }`.
+- Always pass fallbacks via `extra_body: { models: [...] }`.
 
 ## Document Pipeline
 - Uploads go through `/api/documents/upload` — same endpoint for both the Documents page and the chat paperclip attachment.

@@ -71,7 +71,26 @@ export async function GET(req: NextRequest) {
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
     const sessionType = classifySession(now, lastGreetingAt)
 
+    // Determine "away since" for digest
+    let awaySince: Date | null = null
+    if (lastGreetingAt) {
+      const elapsed = Date.now() - new Date(lastGreetingAt).getTime()
+      if (elapsed >= 4 * 60 * 60 * 1000) { // 4+ hours
+        // Find last user message to get actual away-since time
+        const { data: lastUserMsg } = await supabaseAdmin
+          .from('messages')
+          .select('created_at')
+          .eq('role', 'user')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+        awaySince = lastUserMsg ? new Date(lastUserMsg.created_at) : new Date(lastGreetingAt)
+      }
+    }
+
     // Gather context in parallel
+    const awaySinceISO = awaySince?.toISOString() || null
+
     const [
       actionItemsResult,
       recentlyCompletedResult,
@@ -83,6 +102,12 @@ export async function GET(req: NextRequest) {
       dashboardCardsResult,
       notificationRulesResult,
       projectsResult,
+      // "While you were away" digest queries
+      newActionItemsResult,
+      newSalesResult,
+      nudgesSentResult,
+      approachingCommitmentsResult,
+      unansweredEmailsResult,
     ] = await Promise.all([
       // Active action items (excluding snoozed)
       supabaseAdmin
@@ -156,6 +181,58 @@ export async function GET(req: NextRequest) {
         .select('name')
         .order('updated_at', { ascending: false })
         .limit(5),
+      // Digest: new action items since away
+      awaySinceISO
+        ? supabaseAdmin
+            .from('action_items')
+            .select('title, priority, source, created_at')
+            .gte('created_at', awaySinceISO)
+            .in('status', ['pending', 'approved'])
+            .order('created_at', { ascending: false })
+            .limit(10)
+        : Promise.resolve({ data: null }),
+      // Digest: new sales data since away
+      awaySinceISO
+        ? supabaseAdmin
+            .from('sales_data')
+            .select('store_number, store_name, brand, net_sales, report_date')
+            .gte('parsed_at', awaySinceISO)
+            .order('report_date', { ascending: false })
+            .limit(20)
+        : Promise.resolve({ data: null }),
+      // Digest: nudges sent since away
+      awaySinceISO
+        ? supabaseAdmin
+            .from('messages')
+            .select('content, created_at')
+            .eq('role', 'assistant')
+            .like('content', '%**Nudge**%')
+            .gte('created_at', awaySinceISO)
+            .limit(5)
+        : Promise.resolve({ data: null }),
+      // Digest: approaching commitments
+      awaySinceISO
+        ? supabaseAdmin
+            .from('commitments')
+            .select('commitment_text, target_date, related_contact')
+            .eq('status', 'open')
+            .not('target_date', 'is', null)
+            .lte('target_date', new Date(Date.now() + 3 * 24 * 3600000).toISOString().split('T')[0])
+            .order('target_date')
+            .limit(5)
+        : Promise.resolve({ data: null }),
+      // Digest: unanswered emails since away
+      awaySinceISO
+        ? supabaseAdmin
+            .from('email_threads')
+            .select('subject, last_sender, last_message_date')
+            .eq('direction', 'inbound')
+            .eq('needs_response', true)
+            .eq('response_detected', false)
+            .gte('last_message_date', awaySinceISO)
+            .order('last_message_date', { ascending: false })
+            .limit(5)
+        : Promise.resolve({ data: null }),
     ])
 
     const actionItems = actionItemsResult.data || []
@@ -239,6 +316,38 @@ FORMATTING (critical):
 - Example: "Busy one today - **3 things** need your attention before lunch, mostly around the #1008 sale. The Fresno complaint is escalating too."
 - Example quiet: "Clean slate this morning. Nothing urgent, just a few things simmering in the background."
 `
+
+    // Build "while you were away" digest if Jason was away 4+ hours
+    if (awaySince) {
+      const digestParts: string[] = []
+      const newItems = newActionItemsResult.data || []
+      const newSales = newSalesResult.data || []
+      const nudges = nudgesSentResult.data || []
+      const commitments = approachingCommitmentsResult.data || []
+      const unanswered = unansweredEmailsResult.data || []
+
+      if (newItems.length > 0) {
+        const emailItems = newItems.filter((i: any) => i.source === 'email')
+        digestParts.push(`${newItems.length} new action item${newItems.length > 1 ? 's' : ''} created${emailItems.length > 0 ? ` (${emailItems.length} from email)` : ''}: ${newItems.slice(0, 3).map((i: any) => `"${i.title}" [${i.priority}]`).join(', ')}${newItems.length > 3 ? ` +${newItems.length - 3} more` : ''}`)
+      }
+      if (newSales.length > 0 && !hasBriefingToday) {
+        digestParts.push(`New sales data: ${newSales.slice(0, 4).map((s: any) => `${s.store_name || s.store_number} $${s.net_sales?.toLocaleString()} (${s.report_date})`).join(', ')}`)
+      }
+      if (nudges.length > 0) {
+        digestParts.push(`${nudges.length} nudge${nudges.length > 1 ? 's' : ''} sent while you were away`)
+      }
+      if (commitments.length > 0) {
+        digestParts.push(`Approaching commitments: ${commitments.map((c: any) => `"${c.commitment_text}"${c.target_date ? ` (by ${c.target_date})` : ''}`).join(', ')}`)
+      }
+      if (unanswered.length > 0) {
+        digestParts.push(`${unanswered.length} unanswered email${unanswered.length > 1 ? 's' : ''}: ${unanswered.slice(0, 3).map((e: any) => `"${e.subject}" from ${e.last_sender}`).join(', ')}`)
+      }
+
+      if (digestParts.length > 0) {
+        const hours = Math.round((Date.now() - awaySince.getTime()) / 3600000)
+        prompt += `\nWHILE YOU WERE AWAY (${hours}h since last activity):\n${digestParts.map(p => `- ${p}`).join('\n')}\nWeave 1-2 of the most important digest items into your greeting naturally. Don't list them all.\n`
+      }
+    }
 
     if (sessionType === 'morning' && !hasBriefingToday && salesData.length > 0) {
       prompt += `\nSales data available:\n${salesData.map(s => `- ${s.store_name} (#${s.store_number}): $${s.net_sales?.toLocaleString()}`).join('\n')}\n`

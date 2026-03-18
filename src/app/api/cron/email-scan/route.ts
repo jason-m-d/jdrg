@@ -5,6 +5,7 @@ import { fetchEmails } from '@/lib/gmail'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 import { buildFewShotBlock } from '@/lib/training'
 import { sendPushToAll } from '@/lib/push'
+import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 const BACKGROUND_EXTRA_BODY = { extra_body: { models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } }
@@ -434,6 +435,10 @@ export async function POST(req: NextRequest) {
     console.error('Alert generation failed:', e)
   }
 
+  // Phase 3: Auto-triggers (fire-and-forget)
+  const convId = await getMainConversation()
+  maybeSpawnSalesAnomalyResearch(convId).catch(e => console.error('Sales anomaly trigger failed:', e))
+
   return NextResponse.json({ emails_processed: totalProcessed, action_items_found: totalItems })
 }
 
@@ -517,6 +522,113 @@ async function maybeGenerateAlert(newActionItemCount: number) {
   await sendPushToAll('Alert', alertText.slice(0, 200), `/chat/${convId}`)
 }
 
+// --- Phase 3: Sales anomaly auto-trigger ---
+// Detects stores significantly below their 4-week rolling average (same day of week)
+async function maybeSpawnSalesAnomalyResearch(convId: string): Promise<void> {
+  // Global cap
+  const dailyCount = await getDailyAutoTriggerCount()
+  if (dailyCount >= 5) return
+
+  const now = new Date()
+  const todayStr = now.toISOString().split('T')[0]
+  const dayOfWeek = now.getDay()
+
+  // Get today's Wingstop sales
+  const { data: todaySales } = await supabaseAdmin
+    .from('sales_data')
+    .select('store_number, store_name, net_sales, brand')
+    .eq('report_date', todayStr)
+    .eq('brand', 'wingstop')
+
+  if (!todaySales || todaySales.length === 0) return
+
+  // Get the last 4 weeks of same-day-of-week sales for comparison
+  const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 3600000).toISOString().split('T')[0]
+  const { data: historicalSales } = await supabaseAdmin
+    .from('sales_data')
+    .select('store_number, net_sales, report_date')
+    .eq('brand', 'wingstop')
+    .gte('report_date', fourWeeksAgo)
+    .lt('report_date', todayStr)
+
+  if (!historicalSales || historicalSales.length === 0) return
+
+  // Filter historical to same day of week and compute per-store averages
+  const storeAverages: Record<string, { sum: number; count: number; name: string }> = {}
+  for (const row of historicalSales) {
+    const rowDay = new Date(row.report_date + 'T12:00:00Z').getUTCDay()
+    if (rowDay !== dayOfWeek) continue
+    if (!storeAverages[row.store_number]) {
+      storeAverages[row.store_number] = { sum: 0, count: 0, name: row.store_number }
+    }
+    storeAverages[row.store_number].sum += row.net_sales || 0
+    storeAverages[row.store_number].count++
+  }
+
+  // Find anomalies: today's sales 25%+ below rolling average
+  const anomalies: { store_number: string; store_name: string; net_sales: number; average: number; pct_below: number }[] = []
+
+  for (const sale of todaySales) {
+    const avg = storeAverages[sale.store_number]
+    if (!avg || avg.count < 2) continue // Need at least 2 weeks of data
+    const rollingAvg = avg.sum / avg.count
+    if (rollingAvg <= 0) continue
+    const pctBelow = ((rollingAvg - (sale.net_sales || 0)) / rollingAvg) * 100
+    if (pctBelow >= 25) {
+      anomalies.push({
+        store_number: sale.store_number,
+        store_name: sale.store_name || sale.store_number,
+        net_sales: sale.net_sales || 0,
+        average: rollingAvg,
+        pct_below: Math.round(pctBelow),
+      })
+    }
+  }
+
+  if (anomalies.length === 0) return
+
+  for (const anomaly of anomalies) {
+    // Per-store cooldown: one job per store per day
+    const isLimited = await isAutoTriggerRateLimited('sales_anomaly', anomaly.store_number, 24 * 3600000)
+    if (isLimited) continue
+
+    // Recheck daily cap before each spawn
+    const currentCount = await getDailyAutoTriggerCount()
+    if (currentCount >= 5) break
+
+    const prompt = `Sales anomaly detected: Store ${anomaly.store_number} (${anomaly.store_name}) is ${anomaly.pct_below}% below its 4-week rolling average for this day of week.
+
+Today's sales: $${Math.round(anomaly.net_sales).toLocaleString()}
+4-week rolling average (same day of week): $${Math.round(anomaly.average).toLocaleString()}
+
+Please research this anomaly:
+1. Search recent emails mentioning Store ${anomaly.store_number} or "${anomaly.store_name}" for any context (staffing issues, closures, problems)
+2. Check action items and project context related to this store
+3. Summarize what you find and suggest what might be causing the underperformance
+
+Be specific - include any names, dates, or details from emails. If you find nothing relevant, say so clearly.`
+
+    try {
+      const job = await spawnBackgroundJob(
+        convId,
+        'analysis',
+        prompt,
+        'email_scan',
+        { store_number: anomaly.store_number, pct_below: anomaly.pct_below }
+      )
+      await logAutoTrigger('sales_anomaly', anomaly.store_number, job.id, {
+        store_name: anomaly.store_name,
+        pct_below: anomaly.pct_below,
+        net_sales: anomaly.net_sales,
+        average: anomaly.average,
+      })
+      console.log(`Auto-trigger: spawned sales anomaly job ${job.id} for store ${anomaly.store_number} (${anomaly.pct_below}% below avg)`)
+    } catch (e: any) {
+      console.error(`Sales anomaly trigger failed for store ${anomaly.store_number}:`, e.message)
+    }
+  }
+}
+
 // Also support GET for Vercel Cron
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
@@ -529,7 +641,12 @@ export async function GET(req: NextRequest) {
 
 async function extractPdfTextFromBuffer(buffer: Buffer): Promise<string> {
   const { extractPdfText } = await import('@/lib/pdf')
-  return extractPdfText(buffer)
+  const text = await extractPdfText(buffer)
+  if (text && text.trim().length >= 100) return text
+  // Fallback to AI OCR for scanned/complex PDFs
+  console.log(`[email-scan] PDF text extraction got ${text?.length || 0} chars, falling back to OCR`)
+  const { ocrPdfWithAI } = await import('@/lib/pdf')
+  return ocrPdfWithAI(buffer)
 }
 
 function parseJsonSafe(text: string): any {
@@ -587,7 +704,7 @@ If a store has no actual data yet, omit it. If forecast or budget values aren't 
       for (const store of parsed.stores) {
         if (!store.report_date || !store.net_sales) continue
         console.log(`[wingstop-sales] Upserting store ${store.store_number} (${store.store_name}): $${store.net_sales} (forecast: ${store.forecast_sales ?? 'n/a'}, budget: ${store.budget_sales ?? 'n/a'}) on ${store.report_date}`)
-        await supabaseAdmin.from('sales_data').upsert({
+        const { error: upsertError } = await supabaseAdmin.from('sales_data').upsert({
           report_date: store.report_date,
           brand: 'wingstop',
           store_number: store.store_number,
@@ -597,6 +714,7 @@ If a store has no actual data yet, omit it. If forecast or budget values aren't 
           budget_sales: store.budget_sales ?? null,
           raw_email_id: email.id,
         }, { onConflict: 'report_date,brand,store_number' })
+        if (upsertError) console.error(`[wingstop-sales] Upsert failed for store ${store.store_number}: ${upsertError.message}`)
       }
     }
   } catch (e: any) {
@@ -641,7 +759,7 @@ Use YYYY-MM-DD for dates.`,
     if (parsed.stores) {
       for (const store of parsed.stores) {
         if (!store.report_date || !store.net_sales) continue
-        await supabaseAdmin.from('sales_data').upsert({
+        const { error: upsertError } = await supabaseAdmin.from('sales_data').upsert({
           report_date: store.report_date,
           brand: 'mrpickles',
           store_number: store.store_number,
@@ -649,6 +767,7 @@ Use YYYY-MM-DD for dates.`,
           net_sales: store.net_sales,
           raw_email_id: email.id,
         }, { onConflict: 'report_date,brand,store_number' })
+        if (upsertError) console.error(`[mrpickles-sales] Upsert failed for store ${store.store_number}: ${upsertError.message}`)
       }
     }
   } catch (e) {

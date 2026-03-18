@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/morning-briefing",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/nudge",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/overnight-build",
+      "schedule": "0 10 * * *"
     }
   ]
 }

@@ -46,6 +46,7 @@ export function buildSystemPrompt(options?: {
   previousSessionSummary?: string | null
   notes?: Note[]
   contacts?: Contact[]
+  decisions?: { decision_text: string; context: string | null; alternatives_considered: string | null; decided_at: string }[]
 }): string {
   const now = new Date()
   const pacificTime = now.toLocaleString('en-US', {
@@ -210,6 +211,21 @@ Use manage_notification_rules to create/delete/toggle rules. Rules trigger email
   }
 
   // (action item rules are now consolidated in the main action items section above)
+
+  // Past decisions
+  if (options?.decisions && options.decisions.length > 0) {
+    const decisionLines = options.decisions.map(d => {
+      const date = new Date(d.decided_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      let line = `- [${date}] ${d.decision_text}`
+      if (d.context) line += ` (why: ${d.context})`
+      if (d.alternatives_considered) line += ` [alternatives: ${d.alternatives_considered}]`
+      return line
+    })
+    parts.push(`\n\n--- Past Decisions ---
+${decisionLines.join('\n')}
+
+These are decisions Jason has made recently. Reference them when relevant - don't re-ask questions he's already answered. If new information contradicts a past decision, flag it.`)
+  }
 
   // Training context (learned preferences for action item extraction)
   if (options?.trainingContext) {
