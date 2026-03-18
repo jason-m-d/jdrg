@@ -2457,6 +2457,7 @@ async function executeTrainingTool(
 
 async function getOrCreateSession(convId: string): Promise<{ sessionId: string; previousSummary: string | null }> {
   // Look for open session
+  console.log('[Session] query 1: looking for open session')
   const { data: openSession } = await supabaseAdmin
     .from('sessions')
     .select('*')
@@ -2465,11 +2466,13 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
     .order('started_at', { ascending: false })
     .limit(1)
     .single()
+  console.log('[Session] query 1 done, found:', !!openSession)
 
   const now = new Date()
 
   if (openSession) {
     // Check if we should close this session: 30+ messages OR last message > 2 hours ago
+    console.log('[Session] query 2: getting last message')
     const { data: lastMsg } = await supabaseAdmin
       .from('messages')
       .select('created_at')
@@ -2477,6 +2480,7 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
+    console.log('[Session] query 2 done')
 
     const lastMsgAge = lastMsg
       ? (now.getTime() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60)
@@ -2486,6 +2490,7 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
 
     if (!shouldClose) {
       // Fetch previous closed session summary for injection
+      console.log('[Session] query 3: getting prev session summary')
       const { data: prevSession } = await supabaseAdmin
         .from('sessions')
         .select('summary')
@@ -2494,6 +2499,7 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
         .order('ended_at', { ascending: false })
         .limit(1)
         .single()
+      console.log('[Session] query 3 done, returning')
 
       return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
     }
