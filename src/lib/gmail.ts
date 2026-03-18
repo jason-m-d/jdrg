@@ -91,11 +91,15 @@ export async function fetchEmails(account: string, since: Date) {
   const accessToken = await refreshAccessToken(account)
   const sinceEpoch = Math.floor(since.getTime() / 1000)
 
+  console.log(`[gmail] fetchEmails q=after:${sinceEpoch} (${since.toISOString()}) token=${accessToken.slice(0, 10)}...`)
+
   const listRes = await fetch(
     `https://www.googleapis.com/gmail/v1/users/me/messages?q=after:${sinceEpoch}&maxResults=50`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   const listData = await listRes.json()
+
+  console.log(`[gmail] listData status=${listRes.status} messages=${listData.messages?.length ?? 0} error=${listData.error?.message ?? 'none'}`)
 
   if (listData.error) {
     throw new Error(`Gmail API error: ${listData.error.message || JSON.stringify(listData.error)}`)
