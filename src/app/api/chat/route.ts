@@ -599,6 +599,34 @@ const QUICK_CONFIRM_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+const QUERY_SALES_TOOL: Anthropic.Messages.Tool = {
+  name: 'query_sales',
+  description: 'Query sales data for Jason\'s stores from the database. Use this when Jason asks how stores are doing, asks about sales, revenue, or performance. Do not go to Gmail for sales data - it lives here.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      store_number: {
+        type: 'string',
+        description: 'Specific store number (e.g. "895"), or omit for all stores',
+      },
+      brand: {
+        type: 'string',
+        enum: ['wingstop', 'mrpickles'],
+        description: 'Filter by brand, or omit for all brands',
+      },
+      start_date: {
+        type: 'string',
+        description: 'Start date (YYYY-MM-DD). Defaults to 7 days ago.',
+      },
+      end_date: {
+        type: 'string',
+        description: 'End date (YYYY-MM-DD). Defaults to today.',
+      },
+    },
+    required: [],
+  },
+}
+
 const CREATE_CALENDAR_EVENT_TOOL: Anthropic.Messages.Tool = {
   name: 'create_calendar_event',
   description: 'Create a new calendar event. Use when Jason asks to schedule, book, or add something to his calendar.',
@@ -800,6 +828,30 @@ async function executeCreateCalendarEvent(input: any): Promise<any> {
   }
 }
 
+async function executeQuerySales(input: any): Promise<any> {
+  const today = new Date().toISOString().split('T')[0]
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600000).toISOString().split('T')[0]
+  const startDate = input.start_date || sevenDaysAgo
+  const endDate = input.end_date || today
+
+  let query = supabaseAdmin
+    .from('sales_data')
+    .select('store_number, store_name, brand, report_date, net_sales, forecast_sales, budget_sales')
+    .gte('report_date', startDate)
+    .lte('report_date', endDate)
+    .order('report_date', { ascending: false })
+
+  if (input.store_number) query = query.eq('store_number', input.store_number)
+  if (input.brand) query = query.eq('brand', input.brand)
+
+  const { data, error } = await query
+
+  if (error) return { status: 'error', message: error.message }
+  if (!data || data.length === 0) return { status: 'ok', message: `No sales data found between ${startDate} and ${endDate}.`, rows: [] }
+
+  return { status: 'ok', start_date: startDate, end_date: endDate, rows: data }
+}
+
 export async function POST(req: NextRequest) {
   const { message, conversation_id, project_id, active_artifact_id, model } = await req.json()
   const selectedModel = model || 'anthropic/claude-sonnet-4.6:exacto'
@@ -956,7 +1008,7 @@ export async function POST(req: NextRequest) {
             max_tokens: 4096,
             system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }] as any,
             messages: currentMessages,
-            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL, CREATE_WATCH_TOOL, LIST_WATCHES_TOOL, CANCEL_WATCH_TOOL, CHECK_CALENDAR_TOOL, FIND_AVAILABILITY_TOOL, CREATE_CALENDAR_EVENT_TOOL, ASK_STRUCTURED_QUESTION_TOOL, QUICK_CONFIRM_TOOL],
+            tools: [ACTION_ITEM_TOOL, MANAGE_PROJECT_CONTEXT_TOOL, ARTIFACT_TOOL, SEARCH_GMAIL_TOOL, DRAFT_EMAIL_TOOL, MANAGE_PROJECT_TOOL, MANAGE_BOOKMARKS_TOOL, MANAGE_DASHBOARD_TOOL, MANAGE_NOTIFICATION_RULES_TOOL, MANAGE_PREFERENCES_TOOL, TRAINING_TOOL, MANAGE_NOTEPAD_TOOL, MANAGE_CONTACTS_TOOL, SEARCH_WEB_TOOL, SPAWN_BACKGROUND_JOB_TOOL, CREATE_WATCH_TOOL, LIST_WATCHES_TOOL, CANCEL_WATCH_TOOL, CHECK_CALENDAR_TOOL, FIND_AVAILABILITY_TOOL, CREATE_CALENDAR_EVENT_TOOL, ASK_STRUCTURED_QUESTION_TOOL, QUICK_CONFIRM_TOOL, QUERY_SALES_TOOL],
             ...({ extra_body: { models: ['anthropic/claude-sonnet-4.6:exacto', 'google/gemini-3.1-pro-preview'], provider: { sort: 'latency' } } } as any),
           })
 
@@ -1022,6 +1074,7 @@ export async function POST(req: NextRequest) {
                   cancel_watch: 'Canceling watch',
                   ask_structured_question: 'Asking question',
                   quick_confirm: 'Asking for confirmation',
+                  query_sales: 'Checking sales data',
                 }
                 const statusLabel = toolStatusLabels[currentToolUse.name] || 'Working'
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool_status: statusLabel })}\n\n`))
@@ -1264,6 +1317,9 @@ export async function POST(req: NextRequest) {
                     },
                   })}\n\n`))
                   toolResult = { status: 'ok', message: 'Confirmation prompt presented to user. Waiting for response.' }
+                } else if (currentToolUse.name === 'query_sales') {
+                  toolResult = await executeQuerySales(toolInput)
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ sales_query: { status: toolResult.status, row_count: toolResult.rows?.length || 0 } })}\n\n`))
                 } else {
                   toolResult = await executeActionItemTool(toolInput, convId, actionItems)
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({

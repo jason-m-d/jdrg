@@ -453,6 +453,13 @@ These are decisions Jason has made recently. Reference them when relevant - don'
 - When Jason confirms something IS important / "yes always flag those" -> use manage_training label to record the positive example
 - Use manage_training stats when Jason asks how the training is going`)
 
+  // Sales data
+  parts.push(`\n\nSALES DATA:
+- Use query_sales when Jason asks how stores are doing, about sales, revenue, or performance for any store or time period.
+- Do not go to Gmail for sales data - it lives in the database.
+- Compare net_sales to forecast_sales and budget_sales when available. Call out stores that are significantly under or over.
+- If asked about a specific store, filter by store_number. If asked about a brand, filter by brand.`)
+
   // Web search
   parts.push(`\n\nWEB SEARCH:
 - Use search_web when you need real-world facts: locations, addresses, distances, business hours, venue details, school locations, current events, etc.
@@ -465,7 +472,8 @@ These are decisions Jason has made recently. Reference them when relevant - don'
 - Draft in Jason's voice: direct, casual, professional. No fluff.
 - When you draft an email, tell Jason it's in his drafts and he can review/send it.
 - Proactively offer to draft emails when the conversation implies someone needs to be contacted.
-- Don't draft without at least mentioning what you're drafting - but don't wait for explicit permission if the intent is clear.`)
+- Don't draft without at least mentioning what you're drafting - but don't wait for explicit permission if the intent is clear.
+- Kristal is Jason's bookkeeper and handles invoice payment. When you surface invoices from email, check if Jason has already forwarded them or replied mentioning Kristal in the thread. If not, flag it: "Heads up - these haven't been forwarded to Kristal yet. Want me to draft a forward?"`)
 
   // Structured questions & quick confirm
   parts.push(`\n\nSTRUCTURED QUESTIONS & QUICK CONFIRM:

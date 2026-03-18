@@ -457,8 +457,51 @@ export function FormattedContent({ content }: { content: string }) {
   let inCodeBlock = false
   let codeContent = ''
   let codeLang = ''
+  let tableLines: string[] = []
+
+  function flushTable(key: number) {
+    if (tableLines.length < 2) {
+      // Not enough lines to be a real table — render as plain paragraphs
+      tableLines.forEach((tl, ti) => elements.push(<p key={`${key}-${ti}`}>{formatInline(tl)}</p>))
+      tableLines = []
+      return
+    }
+    const headerCells = tableLines[0].split('|').map(c => c.trim()).filter(Boolean)
+    const bodyRows = tableLines.slice(2).filter(l => l.trim().startsWith('|'))
+    elements.push(
+      <div key={key} className="overflow-x-auto my-3">
+        <table className="w-full text-[0.75rem] border-collapse">
+          <thead>
+            <tr>
+              {headerCells.map((cell, ci) => (
+                <th key={ci} className="text-left px-3 py-1.5 border-b border-border/50 text-muted-foreground font-medium whitespace-nowrap">{formatInline(cell)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, ri) => {
+              const cells = row.split('|').map(c => c.trim()).filter(Boolean)
+              return (
+                <tr key={ri} className="border-b border-border/20 last:border-0">
+                  {cells.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-1.5 align-top">{formatInline(cell)}</td>
+                  ))}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+    tableLines = []
+  }
 
   lines.forEach((line, i) => {
+    // Flush pending table if we hit a non-table line
+    if (tableLines.length > 0 && !line.trim().startsWith('|')) {
+      flushTable(i)
+    }
+
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         elements.push(
@@ -521,12 +564,17 @@ export function FormattedContent({ content }: { content: string }) {
           </div>
         )
       }
+    } else if (line.trim().startsWith('|')) {
+      tableLines.push(line)
     } else if (line.trim() === '') {
       elements.push(<div key={i} className="h-3" />)
     } else {
       elements.push(<p key={i}>{formatInline(line)}</p>)
     }
   })
+
+  // Flush any remaining table at end of content
+  if (tableLines.length > 0) flushTable(lines.length)
 
   return <>{elements}</>
 }
