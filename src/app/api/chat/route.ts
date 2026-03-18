@@ -1090,7 +1090,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Get or create session
+  console.log('[Chat] getOrCreateSession start')
   const { sessionId, previousSummary } = await getOrCreateSession(convId)
+  console.log('[Chat] getOrCreateSession done, sessionId:', sessionId)
 
   // Save user message
   await supabaseAdmin.from('messages').insert({
@@ -1201,6 +1203,7 @@ export async function POST(req: NextRequest) {
       : Promise.resolve({ data: [] }),
   ])
 
+  console.log('[Chat] Promise.all done')
   const actionItems: ActionItem[] = actionItemsResult.data || []
   const artifacts: Artifact[] = artifactsResult.data || []
   const projectPrompt = projectResult.data?.system_prompt || ''
