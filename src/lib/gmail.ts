@@ -87,14 +87,14 @@ export async function refreshAccessToken(account: string): Promise<string> {
   return data.access_token
 }
 
-export async function fetchEmails(account: string, since: Date) {
+export async function fetchEmails(account: string, since: Date, maxResults = 20) {
   const accessToken = await refreshAccessToken(account)
   const sinceEpoch = Math.floor(since.getTime() / 1000)
 
-  console.log(`[gmail] fetchEmails q=after:${sinceEpoch} (${since.toISOString()}) token=${accessToken.slice(0, 10)}...`)
+  console.log(`[gmail] fetchEmails q=after:${sinceEpoch} (${since.toISOString()}) max=${maxResults}`)
 
   const listRes = await fetch(
-    `https://www.googleapis.com/gmail/v1/users/me/messages?q=after:${sinceEpoch}&maxResults=50`,
+    `https://www.googleapis.com/gmail/v1/users/me/messages?q=after:${sinceEpoch}&maxResults=${maxResults}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   const listData = await listRes.json()
@@ -107,8 +107,10 @@ export async function fetchEmails(account: string, since: Date) {
 
   if (!listData.messages) return []
 
+  console.log(`[gmail] ${listData.messages.length} message IDs returned, fetching details...`)
   const emails = []
-  for (const msg of listData.messages) {
+  for (let i = 0; i < listData.messages.length; i++) {
+    const msg = listData.messages[i]
     const msgRes = await fetch(
       `https://www.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -118,13 +120,18 @@ export async function fetchEmails(account: string, since: Date) {
     const headers = msgData.payload?.headers || []
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || ''
     const from = headers.find((h: any) => h.name === 'From')?.value || ''
+    const to = headers.find((h: any) => h.name === 'To')?.value || ''
     const body = getEmailBody(msgData.payload)
     const attachments = await getEmailAttachments(msgData.payload, msg.id, accessToken)
 
+    console.log(`[gmail] ${i + 1}/${listData.messages.length} "${subject.slice(0, 50)}" (${attachments.length} PDFs)`)
+
     emails.push({
       id: msg.id,
+      threadId: msgData.threadId || msg.id,
       subject,
       from,
+      to,
       body,
       attachments,
       internalDate: msgData.internalDate,

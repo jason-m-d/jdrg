@@ -22,6 +22,14 @@ function jsonExtraBody(schema: Record<string, unknown>) {
 
 const WINGSTOP_STORES = ['326', '451', '895', '1870', '2067', '2428', '2262', '2289']
 
+// Jason's email addresses for determining email direction
+const JASON_EMAILS = ['jason@demayorestaurantgroup.com', 'jason@hungryhospitality.com', 'jasondemayo@gmail.com']
+
+function extractEmail(headerValue: string): string {
+  const match = headerValue.match(/<([^>]+)>/)
+  return (match ? match[1] : headerValue).toLowerCase().trim()
+}
+
 const EMAIL_EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -56,8 +64,10 @@ const EMAIL_EXTRACTION_SCHEMA = {
         additionalProperties: false,
       },
     },
+    needs_response: { type: 'boolean' },
+    is_automated: { type: 'boolean' },
   },
-  required: ['action_items', 'updates'],
+  required: ['action_items', 'updates', 'needs_response', 'is_automated'],
   additionalProperties: false,
 }
 
@@ -130,13 +140,19 @@ ACTIVE PROJECTS (if an action item clearly relates to a project, include the pro
 For each action item, include a "confidence" score (0.0-1.0).
 1.0 = certain this is an action item. 0.7-0.9 = likely. 0.5-0.7 = uncertain. Below 0.5 = probably not, don't include.
 
+Also classify each email:
+- "needs_response": true if this email is from a real person (not automated) and expects or would benefit from a reply from Jason. false for FYI, newsletters, automated, or already-answered threads.
+- "is_automated": true if this is an automated/system email (order confirmations, alerts, reports, newsletters, no-reply senders). false if from a real person.
+
 Return JSON:
 {
   "action_items": [{"title": "...", "description": "...", "priority": "high|medium|low", "due_date": null, "source_snippet": "...", "confidence": 0.9, "related_project": "Project Name or null"}],
-  "updates": [{"item_id": "uuid", "description": "updated description", "priority": "high|medium|low", "due_date": "2026-01-20"}]
+  "updates": [{"item_id": "uuid", "description": "updated description", "priority": "high|medium|low", "due_date": "2026-01-20"}],
+  "needs_response": true,
+  "is_automated": false
 }
 
-Return {"action_items": [], "updates": []} if nothing qualifies.`
+Return {"action_items": [], "updates": [], "needs_response": false, "is_automated": true} for automated emails with no action items.`
 
 export const maxDuration = 60
 
@@ -199,7 +215,7 @@ export async function POST(req: NextRequest) {
 
       const since = scan?.last_scanned_at ? new Date(scan.last_scanned_at) : new Date(Date.now() - 3600000) // default 1 hour ago
 
-      const emails = await fetchEmails(account, since)
+      const emails = await fetchEmails(account, since, 15)
       console.log(`[email-scan] ${account}: fetched ${emails.length} emails since ${since.toISOString()}`)
       let itemsFound = 0
 
@@ -325,6 +341,48 @@ export async function POST(req: NextRequest) {
                 .from('action_items')
                 .update(updates)
                 .eq('id', update.item_id)
+            }
+          }
+
+          // Track email thread for response detection
+          if (!parsed.is_automated && email.threadId) {
+            const senderEmail = extractEmail(email.from)
+            const isFromJason = JASON_EMAILS.includes(senderEmail)
+            const messageDate = email.internalDate
+              ? new Date(parseInt(email.internalDate)).toISOString()
+              : new Date().toISOString()
+
+            if (isFromJason) {
+              // Jason sent this — mark thread as having a response
+              await supabaseAdmin.from('email_threads').upsert({
+                gmail_thread_id: email.threadId,
+                gmail_account: account,
+                subject: email.subject,
+                last_sender: email.from.replace(/<[^>]+>/, '').trim(),
+                last_sender_email: senderEmail,
+                last_message_date: messageDate,
+                direction: 'outbound',
+                needs_response: false,
+                response_detected: true,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'gmail_thread_id,gmail_account' })
+            } else {
+              // Someone else sent this — check if it needs a response
+              const needsResponse = parsed.needs_response === true
+
+              // Only update if this message is newer (upsert will overwrite)
+              await supabaseAdmin.from('email_threads').upsert({
+                gmail_thread_id: email.threadId,
+                gmail_account: account,
+                subject: email.subject,
+                last_sender: email.from.replace(/<[^>]+>/, '').trim(),
+                last_sender_email: senderEmail,
+                last_message_date: messageDate,
+                direction: 'inbound',
+                needs_response: needsResponse,
+                response_detected: false,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'gmail_thread_id,gmail_account' })
             }
           }
         } catch (e: any) {
