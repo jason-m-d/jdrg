@@ -205,10 +205,10 @@ export async function POST(req: NextRequest) {
   const [{ data: existingItems }, { data: projects }] = await Promise.all([
     supabaseAdmin
       .from('action_items')
-      .select('id, title, description, status, priority, due_date')
+      .select('id, title, description, status, priority, due_date, source_id')
       .in('status', ['pending', 'approved'])
       .order('created_at', { ascending: false })
-      .limit(30),
+      .limit(100),
     supabaseAdmin
       .from('projects')
       .select('id, name, description')
@@ -218,6 +218,9 @@ export async function POST(req: NextRequest) {
   const existingItemsList = (existingItems || [])
     .map((item: any) => `- [${item.id}] "${item.title}" (${item.status}, ${item.priority})${item.due_date ? ` due: ${item.due_date}` : ''}`)
     .join('\n') || '(none)'
+
+  // Build set of email IDs that already have action items — used to skip re-insertion
+  const emailsWithItems = new Set((existingItems || []).map((item: any) => item.source_id).filter(Boolean))
 
   const projectsList = (projects || [])
     .map((p: any) => `- "${p.name}"${p.description ? `: ${p.description}` : ''}`)
@@ -335,6 +338,9 @@ export async function POST(req: NextRequest) {
 
           // Handle new action items
           if (parsed.action_items?.length > 0) {
+            // Skip entirely if this email already produced action items
+            if (emailsWithItems.has(email.id)) continue
+
             const isHighPriority = email.from.includes('@wingstop.com') ||
               WINGSTOP_STORES.some(s => email.body.includes(s) || email.subject.includes(s))
 
