@@ -17,7 +17,7 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
       .is('ended_at', null)
       .order('started_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
     console.log('[Session] query 1 done, found:', !!openSession)
 
     const now = new Date()
@@ -31,7 +31,7 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
         .eq('session_id', openSession.id)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
       console.log('[Session] query 2 done')
 
       const lastMsgAge = lastMsg
@@ -50,7 +50,7 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
           .not('ended_at', 'is', null)
           .order('ended_at', { ascending: false })
           .limit(1)
-          .single()
+          .maybeSingle()
         console.log('[Session] query 3 done, returning')
 
         return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
@@ -74,23 +74,23 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
       .not('ended_at', 'is', null)
       .order('ended_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
     // Create new session
     const { data: newSession } = await supabaseAdmin
       .from('sessions')
       .insert({ conversation_id: convId })
       .select()
-      .single()
+      .maybeSingle()
 
     return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
   })()
 
   const timeout = new Promise<{ sessionId: string | null; previousSummary: string | null }>((resolve) =>
     setTimeout(() => {
-      console.warn('[Session] timed out after 5s, skipping session tracking')
+      console.warn('[Session] timed out after 1s, skipping session tracking')
       resolve({ sessionId: null, previousSummary: null })
-    }, 5000)
+    }, 1000)
   )
 
   return Promise.race([sessionPromise, timeout])
