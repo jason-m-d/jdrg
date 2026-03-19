@@ -88,9 +88,9 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
 
   const timeout = new Promise<{ sessionId: string | null; previousSummary: string | null }>((resolve) =>
     setTimeout(() => {
-      console.warn('[Session] timed out after 1s, skipping session tracking')
+      console.warn('[Session] timed out after 3s, skipping session tracking')
       resolve({ sessionId: null, previousSummary: null })
-    }, 1000)
+    }, 3000)
   )
 
   return Promise.race([sessionPromise, timeout])

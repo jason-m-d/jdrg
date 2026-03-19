@@ -80,7 +80,9 @@ export async function POST(req: NextRequest) {
           ...(sessionId ? { session_id: sessionId } : {}),
         })
 
-        // Load conversation history — scoped to session if we have one
+        // Load conversation history — scoped to session if we have one.
+        // If no session (timeout fallback), apply a 4-hour recency bound so old messages
+        // from previous sessions don't bleed into context.
         console.log('[Chat] step 4: load history')
         const historyQuery = supabaseAdmin
           .from('messages')
@@ -88,7 +90,11 @@ export async function POST(req: NextRequest) {
           .eq('conversation_id', convId)
           .order('created_at', { ascending: true })
           .limit(20)
-        const { data: history } = await (sessionId ? historyQuery.eq('session_id', sessionId) : historyQuery)
+        const { data: history } = await (
+          sessionId
+            ? historyQuery.eq('session_id', sessionId)
+            : historyQuery.gte('created_at', new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString())
+        )
 
         // Always load all projects first — router needs them for project matching, cheap query
         const allProjectsResult = await supabaseAdmin.from('projects').select('id, name, description').order('name')
