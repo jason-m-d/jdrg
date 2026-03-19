@@ -1111,18 +1111,18 @@ export async function POST(req: NextRequest) {
           conversation_id: convId,
           role: 'user',
           content: message,
-          session_id: sessionId,
+          ...(sessionId ? { session_id: sessionId } : {}),
         })
 
-        // Load conversation history for current session only (last 20 messages)
+        // Load conversation history — scoped to session if we have one, otherwise whole conversation
         console.log('[Chat] step 4: load history')
-        const { data: history } = await supabaseAdmin
+        const historyQuery = supabaseAdmin
           .from('messages')
           .select('role, content, context_domains')
           .eq('conversation_id', convId)
-          .eq('session_id', sessionId)
           .order('created_at', { ascending: true })
           .limit(20)
+        const { data: history } = await (sessionId ? historyQuery.eq('session_id', sessionId) : historyQuery)
 
         // Skip vector search for short/vague messages - embeddings on "hi", "yes", "ok" etc.
         // will latch onto whatever happens to be in the store and hallucinate context
@@ -1705,12 +1705,12 @@ export async function POST(req: NextRequest) {
           role: 'assistant',
           content: fullResponse,
           sources,
-          session_id: sessionId,
+          ...(sessionId ? { session_id: sessionId } : {}),
           context_domains: Array.from(domains),
         })
 
         // Increment session message count (user + assistant = 2)
-        void supabaseAdmin.rpc('increment_session_message_count', { session_id_param: sessionId, increment_by: 2 })
+        if (sessionId) void supabaseAdmin.rpc('increment_session_message_count', { session_id_param: sessionId, increment_by: 2 })
 
         // Update conversation timestamp
         await supabaseAdmin
@@ -2475,8 +2475,7 @@ async function executeTrainingTool(
   }
 }
 
-async function getOrCreateSession(convId: string): Promise<{ sessionId: string; previousSummary: string | null }> {
-  const FALLBACK_ID = crypto.randomUUID()
+async function getOrCreateSession(convId: string): Promise<{ sessionId: string | null; previousSummary: string | null }> {
 
   // Wrap entire session logic in a 5s timeout — if Supabase is slow/hung, chat still works.
   const sessionPromise = (async () => {
@@ -2558,10 +2557,10 @@ async function getOrCreateSession(convId: string): Promise<{ sessionId: string; 
     return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
   })()
 
-  const timeout = new Promise<{ sessionId: string; previousSummary: string | null }>((resolve) =>
+  const timeout = new Promise<{ sessionId: string | null; previousSummary: string | null }>((resolve) =>
     setTimeout(() => {
-      console.warn('[Session] timed out after 5s, using fallback session ID')
-      resolve({ sessionId: FALLBACK_ID, previousSummary: null })
+      console.warn('[Session] timed out after 5s, skipping session tracking')
+      resolve({ sessionId: null, previousSummary: null })
     }, 5000)
   )
 
