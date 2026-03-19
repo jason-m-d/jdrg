@@ -1099,30 +1099,16 @@ export async function POST(req: NextRequest) {
           convId = conv.id
         }
 
-        // Start session lookup in parallel — don't block on it yet
-        const sessionPromise = getOrCreateSession(convId)
+        // Get or create session
+        const { sessionId, previousSummary } = await getOrCreateSession(convId)
 
-        // Save user message (without session_id for now — we'll tag it after)
+        // Save user message
         await supabaseAdmin.from('messages').insert({
           conversation_id: convId,
           role: 'user',
           content: message,
+          ...(sessionId ? { session_id: sessionId } : {}),
         })
-
-        // Now await session — it's been running in parallel with the message save
-        const { sessionId, previousSummary } = await sessionPromise
-
-        // Tag the user message with session_id if we got one
-        if (sessionId) {
-          void supabaseAdmin
-            .from('messages')
-            .update({ session_id: sessionId })
-            .eq('conversation_id', convId)
-            .eq('role', 'user')
-            .is('session_id', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-        }
 
         // Load conversation history — scoped to session if we have one, otherwise whole conversation
         const historyQuery = supabaseAdmin
@@ -1303,8 +1289,9 @@ export async function POST(req: NextRequest) {
           acc.push(m)
           return acc
         }, [])
-        // Messages must start with user role
+        // Messages must start with user role and end with user role
         while (deduped.length > 0 && deduped[0].role !== 'user') deduped.shift()
+        while (deduped.length > 0 && deduped[deduped.length - 1].role !== 'user') deduped.pop()
 
         const chatMessages: Anthropic.Messages.MessageParam[] = deduped.map((m: any) => ({
           role: m.role as 'user' | 'assistant',
@@ -2479,78 +2466,85 @@ async function executeTrainingTool(
 
 async function getOrCreateSession(convId: string): Promise<{ sessionId: string | null; previousSummary: string | null }> {
 
-  // Wrap entire session logic in a 5s timeout — if Supabase is slow/hung, chat still works.
   const sessionPromise = (async () => {
-    // Look for open session
-    const { data: openSession } = await supabaseAdmin
-      .from('sessions')
-      .select('*')
-      .eq('conversation_id', convId)
-      .is('ended_at', null)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single()
+    try {
+      const t0 = Date.now()
+      // Look for open session
+      const { data: openSession, error: q1err } = await supabaseAdmin
+        .from('sessions')
+        .select('*')
+        .eq('conversation_id', convId)
+        .is('ended_at', null)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single()
+      console.log(`[Session] q1 open-session: ${Date.now() - t0}ms, found: ${!!openSession}, err: ${q1err?.code || 'none'}`)
 
-    const now = new Date()
+      const now = new Date()
 
-    if (openSession) {
-      // Check if we should close this session: 30+ messages OR last message > 2 hours ago
-      const { data: lastMsg } = await supabaseAdmin
-        .from('messages')
-        .select('created_at')
-        .eq('session_id', openSession.id)
-        .order('created_at', { ascending: false })
+      if (openSession) {
+        // Check if we should close this session: 30+ messages OR last message > 2 hours ago
+        const t1 = Date.now()
+        const { data: lastMsg } = await supabaseAdmin
+          .from('messages')
+          .select('created_at')
+          .eq('session_id', openSession.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+        console.log(`[Session] q2 last-msg: ${Date.now() - t1}ms`)
+
+        const lastMsgAge = lastMsg
+          ? (now.getTime() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60)
+          : 0
+
+        const shouldClose = openSession.message_count >= 30 || lastMsgAge > 2
+
+        if (!shouldClose) {
+          const t2 = Date.now()
+          const { data: prevSession } = await supabaseAdmin
+            .from('sessions')
+            .select('summary')
+            .eq('conversation_id', convId)
+            .not('ended_at', 'is', null)
+            .order('ended_at', { ascending: false })
+            .limit(1)
+            .single()
+          console.log(`[Session] q3 prev-summary: ${Date.now() - t2}ms, total: ${Date.now() - t0}ms`)
+
+          return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
+        }
+
+        // Close the open session
+        await supabaseAdmin
+          .from('sessions')
+          .update({ ended_at: now.toISOString() })
+          .eq('id', openSession.id)
+      }
+
+      // Fetch last closed session summary
+      const { data: lastClosed } = await supabaseAdmin
+        .from('sessions')
+        .select('summary')
+        .eq('conversation_id', convId)
+        .not('ended_at', 'is', null)
+        .order('ended_at', { ascending: false })
         .limit(1)
         .single()
 
-      const lastMsgAge = lastMsg
-        ? (now.getTime() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60)
-        : 0
-
-      const shouldClose = openSession.message_count >= 30 || lastMsgAge > 2
-
-      if (!shouldClose) {
-        // Fetch previous closed session summary for injection
-        const { data: prevSession } = await supabaseAdmin
-          .from('sessions')
-          .select('summary')
-          .eq('conversation_id', convId)
-          .not('ended_at', 'is', null)
-          .order('ended_at', { ascending: false })
-          .limit(1)
-          .single()
-
-        return { sessionId: openSession.id, previousSummary: prevSession?.summary || null }
-      }
-
-      // Close the open session
-      await supabaseAdmin
+      // Create new session
+      const { data: newSession } = await supabaseAdmin
         .from('sessions')
-        .update({ ended_at: now.toISOString() })
-        .eq('id', openSession.id)
+        .insert({ conversation_id: convId })
+        .select()
+        .single()
 
-      // Note: session summarization intentionally skipped here - it was blocking the chat
-      // request for 60+ seconds. TODO: move to nudge cron or a dedicated internal endpoint.
+      console.log(`[Session] new session created, total: ${Date.now() - t0}ms`)
+      return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
+    } catch (err) {
+      console.error('[Session] error:', err)
+      return { sessionId: null, previousSummary: null }
     }
-
-    // Fetch last closed session summary
-    const { data: lastClosed } = await supabaseAdmin
-      .from('sessions')
-      .select('summary')
-      .eq('conversation_id', convId)
-      .not('ended_at', 'is', null)
-      .order('ended_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    // Create new session
-    const { data: newSession } = await supabaseAdmin
-      .from('sessions')
-      .insert({ conversation_id: convId })
-      .select()
-      .single()
-
-    return { sessionId: newSession!.id, previousSummary: lastClosed?.summary || null }
   })()
 
   const timeout = new Promise<{ sessionId: string | null; previousSummary: string | null }>((resolve) =>

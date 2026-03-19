@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const EMAIL = 'jason@hungry.llc'
-const PASSWORD = 'Crosby2026!'
+const PASSWORD = 'JDRG2026!'
 
 // Helper: login and return authenticated page
 async function login(page: any) {
