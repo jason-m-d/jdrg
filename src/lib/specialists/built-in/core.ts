@@ -18,7 +18,6 @@ export const coreSpecialist: SpecialistDefinition = {
     'manage_dashboard',
     'manage_notification_rules',
     'manage_preferences',
-    'request_additional_context',
   ],
   // Core owns tools but does NOT force-load data blocks on every message.
   // The router decides which blocks to load per message (memories, notes, contacts, watches, decisions).
