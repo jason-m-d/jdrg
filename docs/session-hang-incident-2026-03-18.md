@@ -81,26 +81,31 @@ Investigation on 2026-03-18 confirmed:
 Sessions are creating/closing correctly now. The timeout is a safety net, not
 the primary path.
 
-### Session summarization not wired up
-
-Summaries were removed from the chat hot path (they blocked for 60+ seconds).
-Still need to be moved to a cron or background job. All sessions currently have
-`summary: null`.
-
 ## Follow-up Fixes Shipped (2026-03-18)
 
-### 1. Session lookup runs in parallel
-`getOrCreateSession` now starts concurrently with the user message save instead
-of blocking sequentially. User message is saved first without `session_id`, then
-tagged via fire-and-forget update once the session resolves.
+### 1. Session tracking restored
+Reverted parallel session lookup (fire-and-forget update silently failed).
+Session queries take ~200ms — fast enough to run sequentially before the
+user message save. Both user and assistant messages now get `session_id`,
+and `message_count` increments correctly via the RPC.
 
-### 2. Timeout bumped to 10s
+### 2. Timeout kept as safety net (10s)
 Since the stream is already open (fix #1 from the original incident), a 10s
-timeout has no UX impact but gives the session query more room to complete.
+timeout has no UX impact. Session queries complete in ~200ms normally.
 
-### 3. Debug logs cleaned up
-All `[Chat]` and `[Session]` debug checkpoint logs removed. Only the `[Intent]`
-classifier log remains (useful for ongoing monitoring).
+### 3. Message dedup hardened
+Added guard to ensure messages end with user role before sending to OpenRouter.
+Prevents 400 errors from poisoned conversation history.
+
+### 4. Debug logs cleaned up
+All `[Chat]` debug checkpoint logs removed. `[Session]` timing logs and
+`[Intent]` classifier log remain for monitoring.
+
+### 5. Session summary cron (`/api/cron/session-summary`)
+Runs every 15 minutes. Finds closed sessions with no summary, generates
+bullet-point summaries via Gemini Flash Lite, then runs extraction pipeline:
+notepad entries, commitments, decisions, watches, and SOP detection. All
+backlogged sessions have been summarized.
 
 ## Key Files
 
