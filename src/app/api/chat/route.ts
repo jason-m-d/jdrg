@@ -44,7 +44,9 @@ export const maxDuration = 60
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
 export async function POST(req: NextRequest) {
-  console.log("[Chat] ANTHROPIC_BASE_URL =", JSON.stringify(process.env.ANTHROPIC_BASE_URL))
+  const baseUrlDebug = JSON.stringify(process.env.ANTHROPIC_BASE_URL)
+  console.log("[Chat] ANTHROPIC_BASE_URL =", baseUrlDebug)
+  await supabaseAdmin.from('notes').insert({ title: 'DEBUG base url', content: baseUrlDebug })
   const { message, conversation_id, project_id, active_artifact_id, model } = await req.json()
   const selectedModel = model || 'anthropic/claude-sonnet-4.6:exacto'
 
