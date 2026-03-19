@@ -11,6 +11,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Close any sessions that have been idle for 2+ hours (the chat route closes sessions
+  // on next message, but if the user stops chatting, they'd stay open forever)
+  const idleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  const { data: openSessions } = await supabaseAdmin
+    .from('sessions')
+    .select('id, conversation_id')
+    .is('ended_at', null)
+
+  if (openSessions && openSessions.length > 0) {
+    for (const session of openSessions) {
+      // Check last message time for this session
+      const { data: lastMsg } = await supabaseAdmin
+        .from('messages')
+        .select('created_at')
+        .eq('session_id', session.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const lastActivity = lastMsg?.created_at || null
+      const sessionIsIdle = !lastActivity || lastActivity < idleThreshold
+
+      if (sessionIsIdle) {
+        await supabaseAdmin
+          .from('sessions')
+          .update({ ended_at: new Date().toISOString() })
+          .eq('id', session.id)
+        console.log(`[SessionSummary] closed idle session ${session.id} (last activity: ${lastActivity || 'never'})`)
+      }
+    }
+  }
+
   // Find closed sessions that haven't been summarized yet
   const { data: unsummarized } = await supabaseAdmin
     .from('sessions')

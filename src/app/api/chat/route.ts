@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
 
   const encoder = new TextEncoder()
   let fullResponse = ''
+  let isErrorResponse = false
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -618,6 +619,7 @@ export async function POST(req: NextRequest) {
               : "I ran into a connection issue. Please try sending that again."
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: errorText })}\n\n`))
             fullResponse = errorText
+            isErrorResponse = true
             break
           }
           clearTimeout(timeoutId)
@@ -635,9 +637,13 @@ export async function POST(req: NextRequest) {
             }
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "I ran into a connection issue. Please try sending that again." })}\n\n`))
             fullResponse = "I ran into a connection issue. Please try sending that again."
+            isErrorResponse = true
             break
           }
         }
+
+        // Don't save error responses — they'd pollute conversation history and confuse future responses
+        if (isErrorResponse) return
 
         // Save assistant message with specialist IDs as context_domains
         const chunks = loadedData._raw_chunks || []
