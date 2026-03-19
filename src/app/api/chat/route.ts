@@ -302,7 +302,7 @@ export async function POST(req: NextRequest) {
             const errDetail = JSON.stringify({ message: err?.message, status: err?.status, error: err?.error, body: err?.body })
             console.error('Stream-level error:', errDetail)
             // Write to DB so we can read it even when Vercel logs truncate
-            supabaseAdmin.from('notes').insert({ title: 'DEBUG stream error', content: errDetail.slice(0, 500) }).then(() => {}).catch(() => {})
+            void supabaseAdmin.from('notes').insert({ title: 'DEBUG stream error', content: errDetail.slice(0, 500) })
             streamError = err
           })
 
