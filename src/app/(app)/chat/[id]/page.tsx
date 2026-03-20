@@ -287,43 +287,45 @@ export default function ConversationPage() {
         </div>
 
         {/* Messages */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-auto flex flex-col">
-          <ChatMessages
-            messages={messages}
-            streamingContent={streamingContent}
-            loading={loading}
-            toolStatus={toolStatus}
-            scrollContainerRef={scrollContainerRef}
-            onArtifactClick={handleArtifactClick}
-            onCopyMessage={(content) => {
-              chatInputRef.current?.setInputText(content)
-            }}
-            onEditMessage={(messageIndex, content) => {
-              // Remove this message and all messages after it, then put text in input
-              setMessages(prev => prev.slice(0, messageIndex))
-              chatInputRef.current?.setInputText(content)
-            }}
-            onSendMessage={(text) => {
-              if (text.startsWith('__EDIT__')) {
-                chatInputRef.current?.setInputText(text.slice(8))
-              } else {
-                handleSubmit(text)
-              }
-            }}
-          />
-        </div>
-
-        {showScrollButton && (
-          <div className="flex justify-center -mb-2 relative z-10">
-            <button
-              onClick={scrollToBottom}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 backdrop-blur-sm border border-border/40 text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-all text-[0.75rem] shadow-sm"
-            >
-              <ArrowDown className="size-3" />
-              Latest
-            </button>
+        <div className="flex-1 overflow-hidden relative">
+          <div ref={scrollContainerRef} className="h-full overflow-auto flex flex-col">
+            <ChatMessages
+              messages={messages}
+              streamingContent={streamingContent}
+              loading={loading}
+              toolStatus={toolStatus}
+              scrollContainerRef={scrollContainerRef}
+              onArtifactClick={handleArtifactClick}
+              onCopyMessage={(content) => {
+                chatInputRef.current?.setInputText(content)
+              }}
+              onEditMessage={(messageIndex, content) => {
+                // Remove this message and all messages after it, then put text in input
+                setMessages(prev => prev.slice(0, messageIndex))
+                chatInputRef.current?.setInputText(content)
+              }}
+              onSendMessage={(text) => {
+                if (text.startsWith('__EDIT__')) {
+                  chatInputRef.current?.setInputText(text.slice(8))
+                } else {
+                  handleSubmit(text)
+                }
+              }}
+            />
           </div>
-        )}
+
+          {showScrollButton && (
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center z-10">
+              <button
+                onClick={scrollToBottom}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 backdrop-blur-sm border border-border/40 text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-all text-[0.75rem] shadow-sm"
+              >
+                <ArrowDown className="size-3" />
+                Latest
+              </button>
+            </div>
+          )}
+        </div>
 
         <ChatInput ref={chatInputRef} onSubmit={handleSubmit} loading={loading} storageKey={id} />
       </div>

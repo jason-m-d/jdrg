@@ -52,6 +52,7 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
   const prevLoadingRef = useRef(loading)
+  const initialLoadDoneRef = useRef(false)
 
   // When a new response starts (loading flips to true), re-enable auto-scroll
   useEffect(() => {
@@ -80,7 +81,12 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
 
   useEffect(() => {
     if (!userScrolledRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      // First load: jump instantly to avoid smooth-scroll race with DOM rendering
+      const behavior = initialLoadDoneRef.current ? 'smooth' : 'instant'
+      bottomRef.current?.scrollIntoView({ behavior })
+    }
+    if (messages.length > 0) {
+      initialLoadDoneRef.current = true
     }
   }, [messages, streamingContent, greetingData])
 
