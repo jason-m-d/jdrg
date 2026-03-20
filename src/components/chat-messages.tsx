@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Bell, Check, ChevronDown, Clock, Copy, FileText, FolderOpen, FolderPen, FolderPlus, FolderX, GraduationCap, LayoutDashboard, Link2, Loader2, Mail, MailPlus, NotebookPen, Palette, Pencil, PencilLine, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Trash2, X } from 'lucide-react'
 import Link from 'next/link'
@@ -121,7 +121,7 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
           const groupedIds = shouldGroup ? new Set(trailingCron.map((m: any) => m.id)) : new Set()
 
           const elements: React.ReactNode[] = []
-          let cronBatch: any[] = []
+          const cronBatch: any[] = []
 
           for (let i = 0; i < messages.length; i++) {
             const msg = messages[i]

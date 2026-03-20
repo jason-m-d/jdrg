@@ -22,7 +22,7 @@ const TYPE_PRIORITY: Record<string, number> = {
   bridge_status: 5,
 }
 
-function getOneLiner(message: any, messageType: string): string {
+function getOneLiner(message: any, _messageType: string): string {
   const content = (message.content || '') as string
   // Strip the emoji prefix and type header, get first meaningful line
   const lines = content.split('\n').filter((l: string) => l.trim())
