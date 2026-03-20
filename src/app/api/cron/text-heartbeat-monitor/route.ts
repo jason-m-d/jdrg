@@ -67,7 +67,10 @@ export async function POST(req: NextRequest) {
   if (proactiveMessage) {
     proactiveMessage = await rewriteForTone(proactiveMessage, { type: 'bridge_status' })
     const convId = await getMainConversation()
-    await insertProactiveMessage(convId, proactiveMessage, 'bridge_status')
+    await insertProactiveMessage(convId, proactiveMessage, 'bridge_status', {
+      sourceCron: 'text-heartbeat-monitor',
+      relatedTopics: ['imessage_bridge'],
+    })
   }
 
   return NextResponse.json({

@@ -8,6 +8,7 @@ import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { GreetingCard } from '@/components/greeting-card'
 import { StructuredQuestionCard } from '@/components/structured-question-card'
 import { QuickConfirmCard } from '@/components/quick-confirm-card'
+import { CronMessageGroup } from '@/components/cron-message-group'
 
 interface SurfacedItem {
   id: string
@@ -109,17 +110,59 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
             onItemHandled={onGreetingItemHandled}
           />
         )}
-        {messages.map((msg, i) => (
-          <MessageBlock
-            key={msg.id || i}
-            message={msg}
-            isLatest={i === messages.length - 1 && !streamingContent}
-            onArtifactClick={onArtifactClick}
-            onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
-            onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
-            onSendMessage={onSendMessage}
-          />
-        ))}
+        {(() => {
+          // Group consecutive trailing proactive messages (after the last user message) into a catch-up card
+          const lastUserIdx = messages.reduce((acc, msg, i) => msg.role === 'user' ? i : acc, -1)
+          const trailingCron = lastUserIdx >= 0
+            ? messages.slice(lastUserIdx + 1).filter(m => m.role === 'assistant' && resolveMessageType(m))
+            : []
+          const groupThreshold = 2
+          const shouldGroup = trailingCron.length >= groupThreshold
+          const groupedIds = shouldGroup ? new Set(trailingCron.map((m: any) => m.id)) : new Set()
+
+          const elements: React.ReactNode[] = []
+          let cronBatch: any[] = []
+
+          for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i]
+            if (shouldGroup && groupedIds.has(msg.id)) {
+              cronBatch.push(msg)
+              continue
+            }
+            elements.push(
+              <MessageBlock
+                key={msg.id || i}
+                message={msg}
+                isLatest={i === messages.length - 1 && !streamingContent && !shouldGroup}
+                onArtifactClick={onArtifactClick}
+                onCopy={msg.role === 'user' ? () => onCopyMessage?.(msg.content) : undefined}
+                onEdit={msg.role === 'user' ? () => onEditMessage?.(i, msg.content) : undefined}
+                onSendMessage={onSendMessage}
+              />
+            )
+          }
+
+          if (cronBatch.length >= groupThreshold) {
+            elements.push(
+              <CronMessageGroup
+                key="cron-group"
+                messages={cronBatch}
+                resolveType={resolveMessageType}
+                renderExpanded={(msg, idx) => (
+                  <MessageBlock
+                    key={msg.id || idx}
+                    message={msg}
+                    isLatest={idx === cronBatch.length - 1 && !streamingContent}
+                    onArtifactClick={onArtifactClick}
+                    onSendMessage={onSendMessage}
+                  />
+                )}
+              />
+            )
+          }
+
+          return elements
+        })()}
         {streamingContent && (
           <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest isStreaming={loading} toolStatus={toolStatus} />
         )}

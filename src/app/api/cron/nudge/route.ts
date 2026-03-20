@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getMainConversation, insertProactiveMessage } from '@/lib/proactive'
+import { getMainConversation, insertProactiveMessage, wasTopicSurfacedRecently, getRecentOutboxEntries } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
 import { openrouterClient } from '@/lib/openrouter'
@@ -158,12 +158,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Nothing to nudge', nudged: false })
   }
 
+  // Cross-type dedup: check what topics were already surfaced by other crons today
+  const recentOutbox = await getRecentOutboxEntries(12) // last 12 hours covers morning briefing + alerts
+  const alreadySurfacedTopics = recentOutbox
+    .filter(e => e.message_type !== 'nudge') // only cross-type, not self-dedup
+    .flatMap(e => e.related_topics || [])
+  const dedupNote = alreadySurfacedTopics.length > 0
+    ? `\n\nIMPORTANT: These topics were already surfaced to Jason today via briefing or alert - skip them unless there's genuinely new info: ${[...new Set(alreadySurfacedTopics)].join(', ')}`
+    : ''
+
   // Generate nudge message via AI — pick top 3-5
   const response = await openrouterClient.chat.completions.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 400,
     messages: [
-      { role: 'system', content: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Max 100 words. No opening line. No sign-off. Just the bullets. Don't be annoying or preachy — just surface what matters. This is a one-way notification - do NOT include questions or anything that requires a response. State facts and actions needed, don't ask. Group related items - multiple invoices from the same vendor = one bullet with a count. Multiple items for the same store = group under that store. Don't list the same thing 5 times when you can say 'x5 across these locations'.\n\nToday is ${now.toISOString().split('T')[0]}.` },
+      { role: 'system', content: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Max 100 words. No opening line. No sign-off. Just the bullets. Don't be annoying or preachy — just surface what matters. This is a one-way notification - do NOT include questions or anything that requires a response. State facts and actions needed, don't ask. Group related items - multiple invoices from the same vendor = one bullet with a count. Multiple items for the same store = group under that store. Don't list the same thing 5 times when you can say 'x5 across these locations'.\n\nToday is ${now.toISOString().split('T')[0]}.${dedupNote}` },
       { role: 'user', content: `Items needing attention:\n${candidates.join('\n')}` },
     ],
     ...({ models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } as any),
@@ -174,14 +183,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'AI returned empty nudge', nudged: false })
   }
 
-  await insertProactiveMessage(convId, `📌 Nudge\n\n${nudgeText}`, 'nudge')
-  await sendPushToAll('Nudge', nudgeText.slice(0, 200), `/chat/${convId}`)
-
-  // Update last_nudged_at on all candidate action items
+  // Extract topics from nudge candidates for outbox dedup
+  const nudgeTopics = [
+    ...(staleItems || []).map(i => i.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+    ...(dueItems || []).map(i => i.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+    ...(openCommitments || []).map(c => (c.related_contact || c.commitment_text).toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+    ...(unansweredInbound || []).map(t => t.subject.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+    ...(unansweredOutbound || []).map(t => t.subject.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+  ].filter(Boolean)
   const allItemIds = [
     ...(staleItems || []).map(i => i.id),
     ...(dueItems || []).map(i => i.id),
   ]
+
+  await insertProactiveMessage(convId, `📌 Nudge\n\n${nudgeText}`, 'nudge', {
+    sourceCron: 'nudge',
+    relatedItemIds: allItemIds,
+    relatedTopics: [...new Set(nudgeTopics)],
+  })
+  await sendPushToAll('Nudge', nudgeText.slice(0, 200), `/chat/${convId}`)
   if (allItemIds.length > 0) {
     await supabaseAdmin
       .from('action_items')

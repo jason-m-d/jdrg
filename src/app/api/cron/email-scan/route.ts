@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { fetchEmails } from '@/lib/gmail'
-import { getMainConversation, insertProactiveMessage, getUserPreferences, rewriteForTone } from '@/lib/proactive'
+import { getMainConversation, insertProactiveMessage, getUserPreferences, rewriteForTone, wasTopicSurfacedRecently } from '@/lib/proactive'
 import { buildFewShotBlock } from '@/lib/training'
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
@@ -572,7 +572,15 @@ async function processWatchMatches(matches: Awaited<ReturnType<typeof checkWatch
 
     // Post proactive message
     const watchMessageType = watch.priority === 'high' ? 'email_heads_up' : 'watch_match'
-    await insertProactiveMessage(convId, messageText, watchMessageType)
+    const watchTopics = [
+      match.email.from.replace(/<[^>]+>/, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60),
+      match.email.subject.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60),
+    ].filter(Boolean)
+    await insertProactiveMessage(convId, messageText, watchMessageType, {
+      sourceCron: 'email-scan',
+      relatedItemIds: [watchId],
+      relatedTopics: watchTopics,
+    })
 
     // Push notification
     const pushTitle = watch.priority === 'high' ? 'Watch Alert' : 'Watch Match'
@@ -658,7 +666,12 @@ async function maybeGenerateAlert(newActionItemCount: number) {
   const alertText = response.content[0].type === 'text' ? response.content[0].text : ''
   if (!alertText) return
 
-  await insertProactiveMessage(convId, `⚡ Alert\n\n${alertText}`, 'alert')
+  // Extract topics from alert items for outbox dedup
+  const alertTopics = alertWorthy.map(a => a.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)).filter(Boolean)
+  await insertProactiveMessage(convId, `⚡ Alert\n\n${alertText}`, 'alert', {
+    sourceCron: 'email-scan',
+    relatedTopics: [...new Set(alertTopics)],
+  })
 
   // Push notification
   await sendPushToAll('Alert', alertText.slice(0, 200), `/chat/${convId}`)

@@ -27,21 +27,91 @@ export async function getMainConversation(): Promise<string> {
 }
 
 /**
- * Insert a proactive assistant message into a conversation.
+ * Insert a proactive assistant message into a conversation and log it to the outbox.
  */
-export async function insertProactiveMessage(conversationId: string, content: string, messageType?: string) {
-  await supabaseAdmin.from('messages').insert({
+export async function insertProactiveMessage(
+  conversationId: string,
+  content: string,
+  messageType?: string,
+  outboxMeta?: {
+    sourceCron?: string
+    relatedItemIds?: string[]
+    relatedTopics?: string[]
+  }
+) {
+  const { data: msg } = await supabaseAdmin.from('messages').insert({
     conversation_id: conversationId,
     role: 'assistant',
     content,
     ...(messageType ? { message_type: messageType } : {}),
-  })
+  }).select('id').single()
 
   // Touch conversation timestamp so it surfaces
   await supabaseAdmin
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', conversationId)
+
+  // Log to outbox for dedup (fire-and-forget, don't block on failure)
+  if (messageType) {
+    supabaseAdmin.from('proactive_outbox').insert({
+      message_type: messageType,
+      content,
+      source_cron: outboxMeta?.sourceCron ?? null,
+      related_item_ids: outboxMeta?.relatedItemIds ?? [],
+      related_topics: outboxMeta?.relatedTopics ?? [],
+      message_id: msg?.id ?? null,
+    }).then(() => {}, () => {})
+  }
+}
+
+/**
+ * Check whether a topic was already surfaced in the outbox within a time window.
+ * Used by crons to avoid repeating themselves.
+ */
+export async function wasTopicSurfacedRecently(
+  topics: string[],
+  withinHours: number,
+  options?: { messageType?: string; excludeMessageType?: string }
+): Promise<boolean> {
+  if (topics.length === 0) return false
+  const since = new Date(Date.now() - withinHours * 60 * 60 * 1000).toISOString()
+
+  let query = supabaseAdmin
+    .from('proactive_outbox')
+    .select('id')
+    .gte('sent_at', since)
+    .overlaps('related_topics', topics)
+    .limit(1)
+
+  if (options?.messageType) {
+    query = query.eq('message_type', options.messageType)
+  }
+  if (options?.excludeMessageType) {
+    query = query.neq('message_type', options.excludeMessageType)
+  }
+
+  const { data } = await query
+  return (data?.length ?? 0) > 0
+}
+
+/**
+ * Get recent outbox entries for dedup checking.
+ */
+export async function getRecentOutboxEntries(withinHours: number, messageType?: string) {
+  const since = new Date(Date.now() - withinHours * 60 * 60 * 1000).toISOString()
+  let query = supabaseAdmin
+    .from('proactive_outbox')
+    .select('*')
+    .gte('sent_at', since)
+    .order('sent_at', { ascending: false })
+
+  if (messageType) {
+    query = query.eq('message_type', messageType)
+  }
+
+  const { data } = await query
+  return data ?? []
 }
 
 /**

@@ -131,9 +131,18 @@ export async function POST(req: NextRequest) {
     const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
     const fullMessage = `☀️ Morning Briefing - ${dateStr}\n\n${briefingText}`
 
+    // Extract topics from briefing data for outbox dedup
+    const briefingTopics = [
+      ...(actionItems || []).map((i: any) => i.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+      ...(calendarEvents || []).map((e: any) => e.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)),
+    ].filter(Boolean)
+
     // Insert into main conversation
     const convId = await getMainConversation()
-    await insertProactiveMessage(convId, fullMessage, 'briefing')
+    await insertProactiveMessage(convId, fullMessage, 'briefing', {
+      sourceCron: 'morning-briefing',
+      relatedTopics: [...new Set(briefingTopics)],
+    })
 
     // Push notification
     await sendPushToAll('Morning Briefing', `Your ${dateStr} briefing is ready.`, `/chat/${convId}`)
