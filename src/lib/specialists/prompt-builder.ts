@@ -47,6 +47,7 @@ export interface PromptBuilderContext {
   // Loaded data blobs keyed by data block name
   memories?: Memory[]
   actionItems?: ActionItem[]
+  actionItemsCritical?: { items: ActionItem[]; totalCount: number }
   artifacts?: Artifact[]
   projects?: Project[]
   contacts?: Contact[]
@@ -255,6 +256,50 @@ DELEGATION STYLE:
 - Frame as "I'll track this" or "Here's what needs to happen:" rather than "Would you like me to..."
 - When contacts or emails are mentioned, remember them and offer to draft messages.
 - CROSS-FEATURE: If multiple action items cluster around one topic, consider suggesting a project or dashboard card to track it. If completing an item required contacting someone, offer to draft the email.`
+  })
+
+  // {{action_items_critical_section}}
+  result = result.replace('{{action_items_critical_section}}', () => {
+    // If the full action_items_section is also active, skip this to avoid duplication
+    if (ctx.actionItems && ctx.actionItems.length > 0) return ''
+
+    const critical = ctx.actionItemsCritical
+    if (!critical || critical.totalCount === 0) return ''
+
+    const criticalItems = critical.items
+    const otherCount = critical.totalCount - criticalItems.length
+
+    if (criticalItems.length === 0) {
+      return `\n\n--- Action Items Summary ---
+You have ${critical.totalCount} active action item${critical.totalCount !== 1 ? 's' : ''}. None are high-priority or due soon.
+If you need the full list, use request_additional_context with data_needed: ["action_items"].
+
+NATURAL LANGUAGE MATCHING - match by description, not ID:
+- "done with that" / "finished" / "taken care of" -> complete
+- "push to next week" / "not now" / "later" / "remind me Friday" -> snooze
+- "not my problem" / "never mind" / "drop it" -> dismiss
+- "make it high priority" / "this is urgent" -> update priority
+
+Be proactive: when Jason shares information that implies tasks, create action items directly.`
+    }
+
+    const itemLines = criticalItems.map(
+      item => `- [${item.id}] "${item.title}" | status: ${item.status} | priority: ${item.priority}${item.due_date ? ` | due: ${item.due_date}` : ''}${item.snoozed_until ? ` | snoozed until: ${item.snoozed_until}` : ''}`
+    )
+    const summaryLine = otherCount > 0
+      ? `\n(+ ${otherCount} other action item${otherCount !== 1 ? 's' : ''} not shown — if you need the full list, use request_additional_context with data_needed: ["action_items"])`
+      : ''
+
+    return `\n\n--- Critical Action Items ---
+${itemLines.join('\n')}${summaryLine}
+
+NATURAL LANGUAGE MATCHING - match by description, not ID:
+- "done with that" / "finished" / "taken care of" -> complete
+- "push to next week" / "not now" / "later" / "remind me Friday" -> snooze
+- "not my problem" / "never mind" / "drop it" -> dismiss
+- "make it high priority" / "this is urgent" -> update priority
+
+Be proactive: when Jason shares information that implies tasks, create action items directly.`
   })
 
   // {{projects_section}}
@@ -480,6 +525,7 @@ export function buildSpecialistPrompt(
     trainingContext: baseContext.trainingContext,
     memories: loadedData.memories,
     actionItems: loadedData.action_items,
+    actionItemsCritical: loadedData.action_items_critical,
     artifacts: loadedData.artifacts,
     projects: loadedData.projects,
     contacts: loadedData.contacts,

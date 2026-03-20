@@ -4,7 +4,7 @@ import type { RouterResult } from '@/lib/router'
 import { emailSpecialist } from './built-in/email'
 import { calendarSpecialist } from './built-in/calendar'
 import { salesSpecialist } from './built-in/sales'
-import { tasksSpecialist } from './built-in/tasks'
+import { tasksSpecialist, tasksCriticalSpecialist } from './built-in/tasks'
 import { documentsSpecialist } from './built-in/documents'
 import { textsSpecialist } from './built-in/texts'
 import { coreSpecialist } from './built-in/core'
@@ -66,6 +66,7 @@ export async function loadUserSpecialists(): Promise<SpecialistDefinition[]> {
 ;[
   coreSpecialist,
   tasksSpecialist,
+  tasksCriticalSpecialist,
   emailSpecialist,
   calendarSpecialist,
   salesSpecialist,

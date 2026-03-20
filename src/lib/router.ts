@@ -38,7 +38,7 @@ const ROUTER_SCHEMA = {
       items: {
         type: 'string',
         enum: [
-          'action_items', 'projects', 'artifacts', 'memories', 'documents_rag',
+          'action_items', 'action_items_critical', 'projects', 'artifacts', 'memories', 'documents_rag',
           'context_chunks', 'contacts', 'notes', 'calendar', 'emails_awaiting',
           'watches', 'dashboard_cards', 'notification_rules', 'ui_preferences',
           'training', 'decisions', 'texts', 'sales',
@@ -155,7 +155,7 @@ function buildFallbackResult(message: string): RouterResult & { fromFallback: tr
 
   // Map domain names → data_needed values
   const DATA_MAP: Record<string, string[]> = {
-    base: ['action_items', 'projects', 'artifacts', 'watches'],
+    base: ['action_items_critical', 'projects', 'artifacts', 'watches'],
     actionItems: ['action_items'],
     artifacts: ['artifacts'],
     projects: ['projects'],

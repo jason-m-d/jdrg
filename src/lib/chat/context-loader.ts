@@ -104,6 +104,7 @@ export async function loadDataBlocks(options: ContextLoaderOptions): Promise<Rec
     memories,
     contextChunks,
     actionItemsResult,
+    actionItemsCriticalResult,
     projectsResult,
     artifactsResult,
     contactsResult,
@@ -155,7 +156,7 @@ export async function loadDataBlocks(options: ContextLoaderOptions): Promise<Rec
             }))
       : Promise.resolve([]),
 
-    // action_items — tasks specialist is always_on so this always loads
+    // action_items — full list, only when router activates tasks specialist
     dataNeeded.has('action_items')
       ? supabaseAdmin
           .from('action_items')
@@ -164,6 +165,27 @@ export async function loadDataBlocks(options: ContextLoaderOptions): Promise<Rec
           .order('created_at', { ascending: false })
           .limit(30)
       : Promise.resolve({ data: [] }),
+
+    // action_items_critical — always-on: high-priority, overdue, or due within 24h
+    dataNeeded.has('action_items_critical')
+      ? Promise.all([
+          supabaseAdmin
+            .from('action_items')
+            .select('*')
+            .in('status', ['pending', 'approved'])
+            .or(`priority.eq.high,due_date.lt.${new Date().toISOString()},due_date.lte.${new Date(Date.now() + 24 * 3600000).toISOString()}`)
+            .or('snoozed_until.is.null,snoozed_until.lte.' + new Date().toISOString())
+            .order('created_at', { ascending: false })
+            .limit(10),
+          supabaseAdmin
+            .from('action_items')
+            .select('id', { count: 'exact', head: true })
+            .in('status', ['pending', 'approved']),
+        ]).then(([itemsResult, countResult]) => ({
+          items: itemsResult.data || [],
+          totalCount: countResult.count || 0,
+        }))
+      : Promise.resolve({ items: [], totalCount: 0 }),
 
     // projects
     dataNeeded.has('projects')
@@ -291,6 +313,7 @@ export async function loadDataBlocks(options: ContextLoaderOptions): Promise<Rec
     context_chunks: documentContext,  // same built context — specialist checks whichever key it uses
     memories,
     action_items: actionItemsResult.data || [],
+    action_items_critical: actionItemsCriticalResult,
     projects: projectsResult.data || [],
     artifacts: artifactsResult.data || [],
     contacts: contactsResult.data || [],
