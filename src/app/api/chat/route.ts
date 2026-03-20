@@ -31,6 +31,7 @@ import {
   executeCancelWatch,
   executeWebSearch,
   executeSearchConversationHistory,
+  executeGetActivityLog,
 } from '@/lib/chat/tools/executors'
 import { extractMemories } from '@/lib/chat/memory-extraction'
 import { extractFromRecentMessages } from '@/lib/chat/extraction'
@@ -38,6 +39,7 @@ import { resolveSpecialists, specialistRegistry } from '@/lib/specialists/regist
 import { loadDataBlocks } from '@/lib/chat/context-loader'
 import { buildSpecialistPrompt } from '@/lib/specialists/prompt-builder'
 import type { SpecialistDefinition } from '@/lib/specialists/types'
+import { logChatMessage } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -50,6 +52,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder()
   let fullResponse = ''
   let isErrorResponse = false
+  const chatStartTime = Date.now()
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -262,6 +265,7 @@ export async function POST(req: NextRequest) {
         let currentMessages = [...chatMessages]
         let continueLoop = true
         let toolCallCount = 0
+        const toolsCalledThisMessage: string[] = []
         let streamAttempt = 0
 
         while (continueLoop) {
@@ -546,6 +550,8 @@ export async function POST(req: NextRequest) {
                     toolResult = await executeManageGroupWhitelist(toolInput)
                   } else if (currentToolUse.name === 'search_conversation_history') {
                     toolResult = await executeSearchConversationHistory(toolInput, convId)
+                  } else if (currentToolUse.name === 'get_activity_log') {
+                    toolResult = await executeGetActivityLog(toolInput)
                   } else if (currentToolUse.name === 'request_additional_context') {
                     const requestedBlocks: string[] = toolInput.data_blocks || []
                     console.log(`[Chat] request_additional_context: [${requestedBlocks.join(', ')}] — reason: ${toolInput.reason || '(none)'}`)
@@ -598,6 +604,7 @@ export async function POST(req: NextRequest) {
                   ]
 
                   toolCallCount++
+                  toolsCalledThisMessage.push(currentToolUse.name)
                   const stopAfterTool = currentToolUse.name === 'ask_structured_question' || currentToolUse.name === 'quick_confirm'
                   currentToolUse = null
                   continueLoop = !stopAfterTool && toolCallCount < 8
@@ -668,6 +675,16 @@ export async function POST(req: NextRequest) {
           content: fullResponse,
           sources,
           context_domains: activeSpecialists.map(s => s.id),
+        })
+
+        void logChatMessage({
+          conversation_id: convId,
+          model: selectedModel,
+          latency_ms: Date.now() - chatStartTime,
+          specialists: activeSpecialists.map(s => s.id),
+          tools_called: [...new Set(toolsCalledThisMessage)],
+          from_fallback: (routerResult as any).fromFallback ?? false,
+          is_error: false,
         })
 
         await supabaseAdmin

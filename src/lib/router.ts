@@ -8,6 +8,7 @@
 
 import { openrouterClient } from '@/lib/openrouter'
 import { classifyIntent, getToolsForDomains } from '@/lib/intent-classifier'
+import { logRouterDecision } from '@/lib/activity-log'
 
 export interface RouterResult {
   intent: string
@@ -58,7 +59,7 @@ const ROUTER_SCHEMA = {
           'find_availability', 'create_calendar_event', 'manage_dashboard',
           'manage_notification_rules', 'manage_preferences', 'query_sales',
           'search_texts', 'manage_text_contacts', 'manage_group_whitelist',
-          'manage_bookmarks', 'search_conversation_history',
+          'manage_bookmarks', 'search_conversation_history', 'get_activity_log',
         ],
       },
     },
@@ -70,7 +71,7 @@ const ROUTER_SCHEMA = {
   additionalProperties: false,
 }
 
-const ROUTER_SYSTEM_PROMPT = `You are a message router for an AI executive assistant app called Crosby. Your job is to analyze the user's message and determine exactly what data and tools are needed to respond. Be precise - only request what's actually needed. A greeting needs nothing. A question about email needs email tools and emails_awaiting data. A question about store performance needs sales data and the query_sales tool. When multiple topics are mentioned, include data/tools for all of them. The rag_query should be a rewritten version of the user's message optimized for semantic search against the user's documents and project context - make it keyword-rich and specific. Set it to null for greetings, simple questions, or messages that clearly don't need document retrieval. For relevant_projects: identify which projects this message likely relates to based on topic, keywords, or explicit mentions. The active projects will be provided to you. This is critical for two things: (1) scoping RAG retrieval to the right project's documents, and (2) triggering the assistant to ask about saving conversation context to that project. Include search_conversation_history in tools_needed when the message references past conversations or asks about something discussed before (e.g. "what did we talk about", "go back to", "remember when", "earlier you said", "what I said about", "our conversation about", "you mentioned").`
+const ROUTER_SYSTEM_PROMPT = `You are a message router for an AI executive assistant app called Crosby. Your job is to analyze the user's message and determine exactly what data and tools are needed to respond. Be precise - only request what's actually needed. A greeting needs nothing. A question about email needs email tools and emails_awaiting data. A question about store performance needs sales data and the query_sales tool. When multiple topics are mentioned, include data/tools for all of them. The rag_query should be a rewritten version of the user's message optimized for semantic search against the user's documents and project context - make it keyword-rich and specific. Set it to null for greetings, simple questions, or messages that clearly don't need document retrieval. For relevant_projects: identify which projects this message likely relates to based on topic, keywords, or explicit mentions. The active projects will be provided to you. This is critical for two things: (1) scoping RAG retrieval to the right project's documents, and (2) triggering the assistant to ask about saving conversation context to that project. Include search_conversation_history in tools_needed when the message references past conversations or asks about something discussed before (e.g. "what did we talk about", "go back to", "remember when", "earlier you said", "what I said about", "our conversation about", "you mentioned"). Include get_activity_log in tools_needed when the user asks what Crosby has been doing, what crons ran, recent errors, system activity, or whether a background job succeeded.`
 
 /**
  * Route a message using the AI router. Returns a RouterResult with exactly what
@@ -134,13 +135,32 @@ export async function routeMessage(
       throw new Error(`Router JSON parse failed: ${text.slice(0, 100)}`)
     }
 
+    void logRouterDecision({
+      message_preview: message.slice(0, 80),
+      intent: parsed.intent,
+      data_needed: parsed.data_needed,
+      tools_needed: parsed.tools_needed,
+      latency_ms: elapsed,
+      from_fallback: false,
+    })
+
     return parsed
   } catch (err: any) {
     const elapsed = Date.now() - start
     const isTimeout = err?.message === 'Router timeout'
     console.warn(`[Router] ${isTimeout ? 'timeout' : 'error'} after ${elapsed}ms — falling back to classifyIntent(). ${err?.message}`)
 
-    return buildFallbackResult(message)
+    const fallback = buildFallbackResult(message)
+    void logRouterDecision({
+      message_preview: message.slice(0, 80),
+      intent: fallback.intent,
+      data_needed: fallback.data_needed,
+      tools_needed: fallback.tools_needed,
+      latency_ms: elapsed,
+      from_fallback: true,
+    })
+
+    return fallback
   }
 }
 

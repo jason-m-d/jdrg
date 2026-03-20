@@ -25,4 +25,5 @@ export const toolStatusLabels: Record<string, string> = {
   manage_group_whitelist: 'Managing group whitelist',
   search_conversation_history: 'Searching past conversations',
   request_additional_context: 'Loading additional context',
+  get_activity_log: 'Checking activity log',
 }

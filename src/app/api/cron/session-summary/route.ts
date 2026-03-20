@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { extractFromRecentMessages } from '@/lib/chat/extraction'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -20,6 +21,8 @@ export async function POST(req: NextRequest) {
   if (cronSecret !== process.env.CRON_SECRET && cronSecret !== 'manual' && cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const cronStart = Date.now()
 
   // Find conversations with recent activity (last 30 minutes) that may need extraction
   const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
@@ -32,6 +35,7 @@ export async function POST(req: NextRequest) {
     .limit(5)
 
   if (!recentConversations || recentConversations.length === 0) {
+    void logCronJob({ job_name: 'session-summary', success: true, duration_ms: Date.now() - cronStart, summary: 'No recent conversations' })
     return NextResponse.json({ message: 'No recent conversations', processed: 0 })
   }
 
@@ -46,5 +50,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  void logCronJob({ job_name: 'session-summary', success: true, duration_ms: Date.now() - cronStart, summary: `Ran extraction on ${processed} conversation(s)` })
   return NextResponse.json({ message: `Ran extraction on ${processed} conversation(s)`, processed })
 }

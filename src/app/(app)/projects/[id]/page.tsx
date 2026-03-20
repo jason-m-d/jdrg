@@ -132,6 +132,7 @@ export default function ProjectPage() {
             const actionItemEvents: any[] = []
             const addToProjectEvents: any[] = []
             const artifactEvents: any[] = []
+            const contactEvents: any[] = []
             let buffer = ''
 
             while (reader) {
@@ -156,6 +157,7 @@ export default function ProjectPage() {
                     }
                     if (data.action_item) actionItemEvents.push(data.action_item)
                     if (data.project_context) addToProjectEvents.push(data.project_context)
+                    if (data.contact) contactEvents.push(data.contact)
                     if (data.artifact) {
                       artifactEvents.push(data.artifact)
                       const art = data.artifact.artifact as Artifact
@@ -192,6 +194,7 @@ export default function ProjectPage() {
               actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
               addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
               artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
+              contactEvents: contactEvents.length > 0 ? contactEvents : undefined,
             }])
             setStreamingContent('')
           }).catch((err) => {
@@ -291,6 +294,7 @@ export default function ProjectPage() {
       const actionItemEvents: any[] = []
       const addToProjectEvents: any[] = []
       const artifactEvents: any[] = []
+      const contactEvents: any[] = []
       let buffer = ''
 
       while (reader) {
@@ -318,6 +322,9 @@ export default function ProjectPage() {
               }
               if (data.project_context) {
                 addToProjectEvents.push(data.project_context)
+              }
+              if (data.contact) {
+                contactEvents.push(data.contact)
               }
               if (data.artifact) {
                 artifactEvents.push(data.artifact)
@@ -360,6 +367,7 @@ export default function ProjectPage() {
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
+        contactEvents: contactEvents.length > 0 ? contactEvents : undefined,
       }])
       setStreamingContent('')
     } catch (err) {

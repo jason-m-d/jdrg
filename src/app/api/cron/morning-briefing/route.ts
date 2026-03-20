@@ -4,12 +4,15 @@ import { buildBriefingPrompt } from '@/lib/system-prompt'
 import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
 import { sendPushToAll } from '@/lib/push'
 import { openrouterClient } from '@/lib/openrouter'
+import { logCronJob } from '@/lib/activity-log'
 
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
   if (cronSecret !== process.env.CRON_SECRET && cronSecret !== 'manual' && cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const cronStart = Date.now()
 
   try {
     // Load preferences
@@ -147,9 +150,11 @@ export async function POST(req: NextRequest) {
     // Push notification
     await sendPushToAll('Morning Briefing', `Your ${dateStr} briefing is ready.`, `/chat/${convId}`)
 
+    void logCronJob({ job_name: 'morning-briefing', success: true, duration_ms: Date.now() - cronStart, summary: 'Morning briefing generated and sent' })
     return NextResponse.json({ status: 'ok', conversation_id: convId })
   } catch (error) {
     console.error('Morning briefing failed:', error)
+    void logCronJob({ job_name: 'morning-briefing', success: false, duration_ms: Date.now() - cronStart, summary: 'Failed to generate briefing' })
     return NextResponse.json({ error: 'Failed to generate briefing' }, { status: 500 })
   }
 }

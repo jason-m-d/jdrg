@@ -20,6 +20,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getMainConversation } from '@/lib/proactive'
 import { spawnBackgroundJob, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
 import { openrouterClient } from '@/lib/openrouter'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   // Weekly gate: max 2 overnight builds per week
   const { data: gateState } = await supabaseAdmin
     .from('user_state')
@@ -77,12 +80,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (buildState.builds_this_week >= 2) {
+    void logCronJob({ job_name: 'overnight-build', success: true, duration_ms: Date.now() - cronStart, summary: 'Weekly build cap reached (2 builds/week)' })
     return NextResponse.json({ message: 'Weekly build cap reached (2 builds/week)', skipped: true })
   }
 
   // Global daily auto-trigger cap
   const dailyCount = await getDailyAutoTriggerCount()
   if (dailyCount >= 5) {
+    void logCronJob({ job_name: 'overnight-build', success: true, duration_ms: Date.now() - cronStart, summary: 'Daily auto-trigger cap reached' })
     return NextResponse.json({ message: 'Daily auto-trigger cap reached', skipped: true })
   }
 
@@ -97,6 +102,7 @@ export async function POST(req: NextRequest) {
     .limit(100)
 
   if (!recentMessages || recentMessages.length < 5) {
+    void logCronJob({ job_name: 'overnight-build', success: true, duration_ms: Date.now() - cronStart, summary: 'Not enough recent conversation data' })
     return NextResponse.json({ message: 'Not enough recent conversation data', skipped: true })
   }
 
@@ -150,10 +156,12 @@ Return {"opportunities": []} if nothing actionable found.` },
   try {
     parsed = JSON.parse(text)
   } catch {
+    void logCronJob({ job_name: 'overnight-build', success: false, duration_ms: Date.now() - cronStart, summary: 'Failed to parse AI analysis' })
     return NextResponse.json({ message: 'Failed to parse AI analysis', skipped: true })
   }
 
   if (!parsed.opportunities || parsed.opportunities.length === 0) {
+    void logCronJob({ job_name: 'overnight-build', success: true, duration_ms: Date.now() - cronStart, summary: 'No actionable opportunities found' })
     return NextResponse.json({ message: 'No actionable opportunities found', skipped: true })
   }
 
@@ -209,6 +217,7 @@ Then write a brief message to Jason explaining what you built and why: "${opp.re
     updated_at: now.toISOString(),
   }, { onConflict: 'key' })
 
+  void logCronJob({ job_name: 'overnight-build', success: true, duration_ms: Date.now() - cronStart, summary: spawned.length > 0 ? `Spawned ${spawned.length} overnight build(s)` : 'No builds needed' })
   return NextResponse.json({
     message: spawned.length > 0 ? `Spawned ${spawned.length} overnight build(s)` : 'No builds needed',
     builds_spawned: spawned,

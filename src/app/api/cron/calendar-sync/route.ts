@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { fetchUpcomingEvents } from '@/lib/calendar'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -11,9 +12,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   // Get all connected calendar accounts
   const { data: accounts } = await supabaseAdmin.from('calendar_tokens').select('account')
   if (!accounts || accounts.length === 0) {
+    void logCronJob({ job_name: 'calendar-sync', success: true, duration_ms: Date.now() - cronStart, summary: 'No calendar accounts connected' })
     return NextResponse.json({ message: 'No calendar accounts connected', events_synced: 0 })
   }
 
@@ -103,6 +107,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  void logCronJob({ job_name: 'calendar-sync', success: true, duration_ms: Date.now() - cronStart, summary: `Synced ${totalSynced} events across ${accounts.length} account(s)` })
   return NextResponse.json({ events_synced: totalSynced, accounts: accounts.length })
 }
 

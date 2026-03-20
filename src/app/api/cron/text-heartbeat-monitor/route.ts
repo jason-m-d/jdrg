@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getMainConversation, insertProactiveMessage, rewriteForTone } from '@/lib/proactive'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 30
 
@@ -10,6 +11,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   const { data: heartbeat, error } = await supabaseAdmin
     .from('bridge_heartbeats')
     .select('*')
@@ -18,6 +21,7 @@ export async function POST(req: NextRequest) {
 
   if (error || !heartbeat) {
     // No heartbeat row means bridge has never run — nothing to alert on yet
+    void logCronJob({ job_name: 'text-heartbeat-monitor', success: true, duration_ms: Date.now() - cronStart, summary: 'No heartbeat data yet' })
     return NextResponse.json({ status: 'no_data' })
   }
 
@@ -73,6 +77,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  void logCronJob({ job_name: 'text-heartbeat-monitor', success: true, duration_ms: Date.now() - cronStart, summary: `Bridge status: ${newStatus ?? previousStatus}, age: ${Math.round(ageMinutes)}min, notified: ${!!proactiveMessage}` })
   return NextResponse.json({
     previous_status: previousStatus,
     new_status: newStatus,

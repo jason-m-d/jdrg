@@ -742,6 +742,33 @@ export const SEARCH_CONVERSATION_HISTORY_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+export const GET_ACTIVITY_LOG_TOOL: Anthropic.Messages.Tool = {
+  name: 'get_activity_log',
+  description: "Query Crosby's own activity log. Use when Jason asks what Crosby has been doing, what crons ran, whether a job succeeded, what model was used, which specialists were active, or to review recent errors.",
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      event_types: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: ['chat_message', 'cron_job', 'background_job', 'router_decision', 'error', 'nudge_decision'],
+        },
+        description: 'Filter to specific event types. Omit to return all types.',
+      },
+      hours_back: {
+        type: 'number',
+        description: 'How many hours back to look (default: 24, max: 168)',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max events to return (default: 50, max: 200)',
+      },
+    },
+    required: [],
+  },
+}
+
 export const ALL_TOOLS_MAP: Record<string, Anthropic.Messages.Tool> = {
   manage_action_items: ACTION_ITEM_TOOL,
   manage_artifact: ARTIFACT_TOOL,
@@ -772,4 +799,5 @@ export const ALL_TOOLS_MAP: Record<string, Anthropic.Messages.Tool> = {
   manage_bookmarks: MANAGE_BOOKMARKS_TOOL,
   request_additional_context: REQUEST_ADDITIONAL_CONTEXT_TOOL,
   search_conversation_history: SEARCH_CONVERSATION_HISTORY_TOOL,
+  get_activity_log: GET_ACTIVITY_LOG_TOOL,
 }

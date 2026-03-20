@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { openrouterClient } from '@/lib/openrouter'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -47,6 +48,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   // Load known contacts for context
   const { data: contacts } = await supabaseAdmin
     .from('text_contacts')
@@ -67,10 +70,12 @@ export async function POST(req: NextRequest) {
     .limit(200) // cap per run, process in batches below
 
   if (fetchError) {
+    void logCronJob({ job_name: 'text-scan', success: false, duration_ms: Date.now() - cronStart, summary: fetchError.message })
     return NextResponse.json({ error: fetchError.message }, { status: 500 })
   }
 
   if (!messages || messages.length === 0) {
+    void logCronJob({ job_name: 'text-scan', success: true, duration_ms: Date.now() - cronStart, summary: 'No messages to scan' })
     return NextResponse.json({ processed: 0, flagged: 0 })
   }
 
@@ -152,6 +157,7 @@ Return a classification for every message ID provided.`
     }
   }
 
+  void logCronJob({ job_name: 'text-scan', success: true, duration_ms: Date.now() - cronStart, summary: `Processed ${totalProcessed} messages, flagged ${totalFlagged} as business` })
   return NextResponse.json({ processed: totalProcessed, flagged: totalFlagged })
 }
 

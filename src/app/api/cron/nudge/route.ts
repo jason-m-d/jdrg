@@ -4,6 +4,7 @@ import { getMainConversation, insertProactiveMessage, wasTopicSurfacedRecently, 
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
 import { openrouterClient } from '@/lib/openrouter'
+import { logCronJob, logNudgeDecision } from '@/lib/activity-log'
 
 export const maxDuration = 30
 
@@ -12,6 +13,8 @@ export async function POST(req: NextRequest) {
   if (cronSecret !== process.env.CRON_SECRET && cronSecret !== 'manual' && cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const cronStart = Date.now()
 
   const convId = await getMainConversation()
 
@@ -26,6 +29,8 @@ export async function POST(req: NextRequest) {
     .limit(1)
 
   if (recentNudges && recentNudges.length > 0) {
+    void logCronJob({ job_name: 'nudge', success: true, duration_ms: Date.now() - cronStart, summary: 'Skipped — nudge sent recently' })
+    void logNudgeDecision({ sent: false, reason: 'sent recently (anti-spam)', candidate_count: 0 })
     return NextResponse.json({ message: 'Skipped — nudge sent recently', nudged: false })
   }
 
@@ -155,6 +160,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (candidates.length === 0) {
+    void logCronJob({ job_name: 'nudge', success: true, duration_ms: Date.now() - cronStart, summary: 'Nothing to nudge' })
+    void logNudgeDecision({ sent: false, reason: 'no candidates', candidate_count: 0 })
     return NextResponse.json({ message: 'Nothing to nudge', nudged: false })
   }
 
@@ -195,6 +202,8 @@ Today is ${now.toISOString().split('T')[0]}.${dedupNote}` },
 
   const nudgeText = response.choices[0]?.message?.content || ''
   if (!nudgeText) {
+    void logCronJob({ job_name: 'nudge', success: false, duration_ms: Date.now() - cronStart, summary: 'AI returned empty nudge' })
+    void logNudgeDecision({ sent: false, reason: 'AI returned empty response', candidate_count: candidates.length })
     return NextResponse.json({ message: 'AI returned empty nudge', nudged: false })
   }
 
@@ -230,6 +239,9 @@ Today is ${now.toISOString().split('T')[0]}.${dedupNote}` },
   // Fire-and-forget: spawn deadline research for items due in next 3 days
   maybeSpawnDeadlineResearch(convId, dueItems || [], openCommitments || [])
     .catch(e => console.error('Deadline research spawn failed:', e))
+
+  void logCronJob({ job_name: 'nudge', success: true, duration_ms: Date.now() - cronStart, summary: `Nudge sent with ${candidates.length} candidates`, metadata: { candidate_count: candidates.length } })
+  void logNudgeDecision({ sent: true, reason: 'candidates found', candidate_count: candidates.length })
 
   return NextResponse.json({
     message: `Nudge sent with ${candidates.length} candidates`,

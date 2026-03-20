@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { generateEmbedding } from '@/lib/embeddings'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -13,6 +14,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   // Find messages that haven't been embedded yet
   const { data: messages } = await supabaseAdmin
     .from('messages')
@@ -22,6 +25,7 @@ export async function POST(req: NextRequest) {
     .limit(BATCH_SIZE)
 
   if (!messages || messages.length === 0) {
+    void logCronJob({ job_name: 'embed-messages', success: true, duration_ms: Date.now() - cronStart, summary: 'No messages to embed' })
     return NextResponse.json({ message: 'No messages to embed', embedded: 0 })
   }
 
@@ -62,6 +66,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  void logCronJob({ job_name: 'embed-messages', success: true, duration_ms: Date.now() - cronStart, summary: `Embedded ${embedded} messages` })
   return NextResponse.json({ message: `Embedded ${embedded} messages`, embedded })
 }
 

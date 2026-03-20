@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Bell, Check, ChevronDown, Clock, Copy, FileText, FolderOpen, FolderPen, FolderPlus, FolderX, GraduationCap, LayoutDashboard, Link2, Loader2, Mail, MailPlus, NotebookPen, Palette, Pencil, PencilLine, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Trash2, X } from 'lucide-react'
+import { Bell, Check, ChevronDown, Clock, Copy, FileText, FolderOpen, FolderPen, FolderPlus, FolderX, GraduationCap, LayoutDashboard, Link2, Loader2, Mail, MailPlus, NotebookPen, Palette, Pencil, PencilLine, Plus, RefreshCw, Send, ThumbsDown, ThumbsUp, Trash2, User, X } from 'lucide-react'
 import Link from 'next/link'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { GreetingCard } from '@/components/greeting-card'
@@ -415,6 +415,15 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
         </div>
       )}
 
+      {/* Contacts */}
+      {message.contactEvents && message.contactEvents.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          <CollapsibleCards count={message.contactEvents.length}>
+            {message.contactEvents.map((e: any, i: number) => <ContactCard key={i} event={e} />)}
+          </CollapsibleCards>
+        </div>
+      )}
+
       {/* Email Drafts */}
       {message.emailDraftEvents && message.emailDraftEvents.length > 0 && (
         <div className="mt-3 space-y-1.5">
@@ -786,6 +795,22 @@ function GmailSearchCard({ event }: { event: any }) {
       <span className={cn("text-[0.625rem] ml-auto shrink-0", hasError ? "text-red-500/70" : "text-muted-foreground/50")}>
         {hasError ? 'error' : `${event.result_count} result${event.result_count !== 1 ? 's' : ''}`}
       </span>
+    </div>
+  )
+}
+
+function ContactCard({ event }: { event: any }) {
+  const contact = event.result?.contact || event.result?.contacts?.[0]
+  const operation = event.operation
+  const operationLabel: Record<string, string> = { search: 'Contact', create: 'Contact saved', update: 'Contact updated', delete: 'Contact removed' }
+
+  return (
+    <div className="flex items-center gap-2 text-[0.75rem] border border-border px-3 py-2">
+      <User className="size-3 shrink-0 text-blue-400" />
+      <span className="text-muted-foreground">{operationLabel[operation] || 'Contact'}:</span>
+      <span className="text-foreground/80 truncate font-medium">{contact?.name ?? '—'}</span>
+      {contact?.phone && <span className="text-muted-foreground/70 truncate">{contact.phone}</span>}
+      {contact?.email && <span className="text-muted-foreground/70 truncate">{contact.email}</span>}
     </div>
   )
 }

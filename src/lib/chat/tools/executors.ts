@@ -1058,6 +1058,21 @@ export async function executeNotepadTool(
   switch (input.operation) {
     case 'create': {
       if (!input.content) return { status: 'error', message: 'content is required' }
+
+      // Dedup check: skip if a similar note already exists
+      const { data: existing } = await supabaseAdmin
+        .from('notes')
+        .select('id, content, title')
+        .or('expires_at.is.null,expires_at.gt.' + new Date().toISOString())
+
+      const isDuplicate = existing?.some(n => {
+        const sameContent = n.content.toLowerCase().trim().slice(0, 80) === input.content!.toLowerCase().trim().slice(0, 80)
+        const sameTitle = input.title && n.title && n.title.toLowerCase() === input.title.toLowerCase()
+        return sameContent || sameTitle
+      })
+
+      if (isDuplicate) return { status: 'duplicate', message: 'A similar note already exists.' }
+
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
       const { data, error } = await supabaseAdmin
         .from('notes')
@@ -1280,5 +1295,62 @@ export async function executeSearchConversationHistory(
   } catch (err: any) {
     console.error('[search_conversation_history] failed:', err)
     return { status: 'error', message: err.message }
+  }
+}
+
+export async function executeGetActivityLog(input: {
+  event_types?: string[]
+  hours_back?: number
+  limit?: number
+}): Promise<object> {
+  const hoursBack = Math.min(input.hours_back ?? 24, 168)
+  const limitCount = Math.min(input.limit ?? 50, 200)
+  const cutoff = new Date(Date.now() - hoursBack * 3600000).toISOString()
+
+  let q = supabaseAdmin
+    .from('crosby_events')
+    .select('event_type, occurred_at, payload')
+    .gte('occurred_at', cutoff)
+    .order('occurred_at', { ascending: false })
+    .limit(limitCount)
+
+  if (input.event_types && input.event_types.length > 0) {
+    q = q.in('event_type', input.event_types) as typeof q
+  }
+
+  const { data, error } = await q
+  if (error) return { error: error.message }
+
+  const lines = (data || []).map(event => {
+    const time = new Date(event.occurred_at).toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    })
+    const p = event.payload as any
+
+    switch (event.event_type) {
+      case 'chat_message':
+        return `[${time}] Chat: ${p.specialists?.join(', ') || 'core'} specialists, ${p.tools_called?.length || 0} tools, ${p.latency_ms}ms${p.from_fallback ? ' (fallback router)' : ''}${p.is_error ? ' ERROR' : ''}`
+      case 'cron_job':
+        return `[${time}] Cron/${p.job_name}: ${p.success ? 'OK' : 'FAILED'} in ${p.duration_ms}ms — ${p.summary}`
+      case 'background_job':
+        return `[${time}] BgJob/${p.job_type}: ${p.success ? 'OK' : 'FAILED'} in ${p.duration_ms}ms (trigger: ${p.trigger_source})${p.error ? ` — ${p.error}` : ''}`
+      case 'router_decision':
+        return `[${time}] Router: "${p.message_preview}" → [${p.data_needed?.join(', ') || 'none'}]${p.from_fallback ? ' (fallback)' : ''} ${p.latency_ms}ms`
+      case 'error':
+        return `[${time}] ERROR in ${p.route}: ${p.error_type} — ${p.error_message}`
+      case 'nudge_decision':
+        return `[${time}] Nudge: ${p.sent ? 'sent' : 'skipped'} — ${p.reason} (${p.candidate_count} candidates)`
+      default:
+        return `[${time}] ${event.event_type}: ${JSON.stringify(event.payload).slice(0, 120)}`
+    }
+  })
+
+  return {
+    count: lines.length,
+    hours_back: hoursBack,
+    events: lines,
+    summary: `${lines.length} events in the last ${hoursBack}h`,
   }
 }

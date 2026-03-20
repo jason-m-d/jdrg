@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
+import { logCronJob } from '@/lib/activity-log'
 import { fetchEmails } from '@/lib/gmail'
 import { getMainConversation, insertProactiveMessage, getUserPreferences, rewriteForTone, wasTopicSurfacedRecently } from '@/lib/proactive'
 import { buildFewShotBlock } from '@/lib/training'
@@ -186,6 +187,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   let totalProcessed = 0
   let totalItems = 0
 
@@ -198,6 +201,7 @@ export async function POST(req: NextRequest) {
   // Get all connected accounts
   const { data: accounts } = await supabaseAdmin.from('google_tokens').select('account')
   if (!accounts || accounts.length === 0) {
+    void logCronJob({ job_name: 'email-scan', success: true, duration_ms: Date.now() - cronStart, summary: 'No accounts connected' })
     return NextResponse.json({ message: 'No accounts connected', emails_processed: 0, action_items_found: 0 })
   }
 
@@ -493,6 +497,7 @@ export async function POST(req: NextRequest) {
   const convId = await getMainConversation()
   maybeSpawnSalesAnomalyResearch(convId).catch(e => console.error('Sales anomaly trigger failed:', e))
 
+  void logCronJob({ job_name: 'email-scan', success: true, duration_ms: Date.now() - cronStart, summary: `Processed ${totalProcessed} emails, found ${totalItems} action items` })
   return NextResponse.json({ emails_processed: totalProcessed, action_items_found: totalItems })
 }
 

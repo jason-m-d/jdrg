@@ -103,6 +103,7 @@ export default function ConversationPage() {
       const addToProjectEvents: any[] = []
       const artifactEvents: any[] = []
       const gmailSearchEvents: any[] = []
+      const contactEvents: any[] = []
       const trainingEvents: any[] = []
       const structuredQuestionEvents: any[] = []
       const quickConfirmEvents: any[] = []
@@ -136,6 +137,9 @@ export default function ConversationPage() {
               }
               if (data.gmail_search) {
                 gmailSearchEvents.push(data.gmail_search)
+              }
+              if (data.contact) {
+                contactEvents.push(data.contact)
               }
               if (data.training) {
                 trainingEvents.push(data.training)
@@ -177,6 +181,7 @@ export default function ConversationPage() {
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
         gmailSearchEvents: gmailSearchEvents.length > 0 ? gmailSearchEvents : undefined,
+        contactEvents: contactEvents.length > 0 ? contactEvents : undefined,
         trainingEvents: trainingEvents.length > 0 ? trainingEvents : undefined,
         structuredQuestionEvents: structuredQuestionEvents.length > 0 ? structuredQuestionEvents : undefined,
         quickConfirmEvents: quickConfirmEvents.length > 0 ? quickConfirmEvents : undefined,

@@ -246,6 +246,7 @@ export default function HomePage() {
       const addToProjectEvents: any[] = []
       const artifactEvents: any[] = []
       const gmailSearchEvents: any[] = []
+      const contactEvents: any[] = []
       const emailDraftEvents: any[] = []
       const projectEvents: any[] = []
       const bookmarkEvents: any[] = []
@@ -292,6 +293,9 @@ export default function HomePage() {
               }
               if (data.gmail_search) {
                 gmailSearchEvents.push(data.gmail_search)
+              }
+              if (data.contact) {
+                contactEvents.push(data.contact)
               }
               if (data.artifact) {
                 artifactEvents.push(data.artifact)
@@ -360,6 +364,7 @@ export default function HomePage() {
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
         gmailSearchEvents: gmailSearchEvents.length > 0 ? gmailSearchEvents : undefined,
+        contactEvents: contactEvents.length > 0 ? contactEvents : undefined,
         emailDraftEvents: emailDraftEvents.length > 0 ? emailDraftEvents : undefined,
         projectEvents: projectEvents.length > 0 ? projectEvents : undefined,
         bookmarkEvents: bookmarkEvents.length > 0 ? bookmarkEvents : undefined,

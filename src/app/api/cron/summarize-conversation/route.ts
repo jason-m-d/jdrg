@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import Anthropic from '@anthropic-ai/sdk'
+import { logCronJob } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -19,6 +20,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = Date.now()
+
   // Load the main conversation(s) - non-project conversations
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
@@ -28,6 +31,7 @@ export async function POST(req: NextRequest) {
     .limit(5)
 
   if (!conversations || conversations.length === 0) {
+    void logCronJob({ job_name: 'summarize-conversation', success: true, duration_ms: Date.now() - cronStart, summary: 'No conversations found' })
     return NextResponse.json({ message: 'No conversations found', summarized: 0 })
   }
 
@@ -42,6 +46,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  void logCronJob({ job_name: 'summarize-conversation', success: true, duration_ms: Date.now() - cronStart, summary: `Ran summarization on ${summarized} conversation(s)` })
   return NextResponse.json({ message: `Ran summarization on ${summarized} conversation(s)`, summarized })
 }
 
