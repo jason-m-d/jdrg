@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 400,
     messages: [
-      { role: 'system', content: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Keep it under 200 words. Start with a brief one-liner, then bullet points. Don't be annoying or preachy — just surface what matters.\n\nToday is ${now.toISOString().split('T')[0]}.` },
+      { role: 'system', content: `You're Crosby, Jason DeMayo's AI assistant. Write a brief, direct nudge message about things that need his attention. Pick the top 3-5 most important items from the list. Be specific — include names, dates, subjects. Use hyphens not em dashes. Keep it under 200 words. Start with a brief one-liner, then bullet points. Don't be annoying or preachy — just surface what matters. This is a one-way notification - do NOT include questions or anything that requires a response. State facts and actions needed, don't ask.\n\nToday is ${now.toISOString().split('T')[0]}.` },
       { role: 'user', content: `Items needing attention:\n${candidates.join('\n')}` },
     ],
     ...({ models: ['google/gemini-3.1-flash-lite-preview', 'google/gemini-3-flash-preview'], provider: { sort: 'price' } } as any),

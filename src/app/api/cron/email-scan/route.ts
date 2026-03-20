@@ -640,7 +640,7 @@ async function maybeGenerateAlert(newActionItemCount: number) {
   const response = await anthropic.messages.create({
     model: 'google/gemini-3.1-flash-lite-preview',
     max_tokens: 256,
-    system: `Write a very short alert (2-3 sentences max) for Jason DeMayo. Be direct, no fluff. Use hyphens not em dashes.${preferences.length > 0 ? `\n\nUser preferences:\n${preferences.map(p => `- ${p}`).join('\n')}` : ''}`,
+    system: `Write a very short alert (2-3 sentences max) for Jason DeMayo. Be direct, no fluff. Use hyphens not em dashes. This is a one-way notification - Jason may not be looking at the app when this arrives. Do NOT include questions, tool calls, or anything that requires an immediate response. Just state what needs attention and why it's urgent. If action is needed, state what the action is - don't ask if he wants to do it.${preferences.length > 0 ? `\n\nUser preferences:\n${preferences.map(p => `- ${p}`).join('\n')}` : ''}`,
     messages: [{ role: 'user', content: `Alert items:\n${alertWorthy.map(a => `- ${a}`).join('\n')}` }],
     ...(BACKGROUND_EXTRA_BODY as any),
   })

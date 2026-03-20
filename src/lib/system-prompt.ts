@@ -579,7 +579,7 @@ export function buildBriefingPrompt(data: {
 
 Format: markdown, scannable, no fluff. Use bullet points. Keep it under 400 words.
 Start with the most important items. Group by topic (sales, action items, email activity).
-Use hyphens, not em dashes.`)
+Use hyphens, not em dashes. This is a one-way notification - do NOT include questions or anything that requires a response. State facts and what needs attention, don't ask.`)
 
   if (preferences.length > 0) {
     parts.push(`\n\nUser preferences (MUST respect these - skip topics the user doesn't want, emphasize what they do):
