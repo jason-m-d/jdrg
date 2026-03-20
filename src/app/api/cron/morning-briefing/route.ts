@@ -129,11 +129,11 @@ export async function POST(req: NextRequest) {
     // Format with prefix
     const today = new Date()
     const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-    const fullMessage = `☀️ **Morning Briefing - ${dateStr}**\n\n${briefingText}`
+    const fullMessage = `☀️ Morning Briefing - ${dateStr}\n\n${briefingText}`
 
     // Insert into main conversation
     const convId = await getMainConversation()
-    await insertProactiveMessage(convId, fullMessage)
+    await insertProactiveMessage(convId, fullMessage, 'briefing')
 
     // Push notification
     await sendPushToAll('Morning Briefing', `Your ${dateStr} briefing is ready.`, `/chat/${convId}`)

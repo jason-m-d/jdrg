@@ -55,6 +55,7 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   sources: Record<string, unknown>[] | null
+  message_type?: 'briefing' | 'nudge' | 'alert' | 'watch_match' | 'email_heads_up' | 'bridge_status' | null
   created_at: string
 }
 

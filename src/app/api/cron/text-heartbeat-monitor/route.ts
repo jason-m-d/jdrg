@@ -38,20 +38,20 @@ export async function POST(req: NextRequest) {
     // Dead: > 2 hours
     newStatus = 'dead'
     if (previousStatus !== 'dead') {
-      proactiveMessage = `**iMessage bridge is offline.** Your iMessage bridge has been down for over 2 hours (last seen: ${lastBeatFormatted}). I'm not receiving any new texts.\n\nCheck if your Mac is awake and the bridge process is running:\n\`pm2 status\`\n\nIf it's stopped: \`pm2 restart imessage-bridge\``
+      proactiveMessage = `iMessage bridge is offline. Your iMessage bridge has been down for over 2 hours (last seen: ${lastBeatFormatted}). I'm not receiving any new texts.\n\nCheck if your Mac is awake and the bridge process is running:\n\`pm2 status\`\n\nIf it's stopped: \`pm2 restart imessage-bridge\``
     }
   } else if (ageMinutes >= 30) {
     // Stale: 30–120 minutes
     newStatus = 'stale'
     if (previousStatus !== 'stale' && previousStatus !== 'dead') {
-      proactiveMessage = `**Heads up** — I haven't received texts from your Mac since ${lastBeatFormatted}. The iMessage bridge might be down or your Mac might be asleep.`
+      proactiveMessage = `Heads up — I haven't received texts from your Mac since ${lastBeatFormatted}. The iMessage bridge might be down or your Mac might be asleep.`
     }
   } else {
     // Healthy
     newStatus = 'healthy'
     if (previousStatus === 'stale' || previousStatus === 'dead') {
       // Bridge came back — notify recovery
-      proactiveMessage = `**iMessage bridge is back online.** Catching up on any missed texts since ${lastBeatFormatted}.`
+      proactiveMessage = `iMessage bridge is back online. Catching up on any missed texts since ${lastBeatFormatted}.`
     }
   }
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   // Send proactive message if needed
   if (proactiveMessage) {
     const convId = await getMainConversation()
-    await insertProactiveMessage(convId, proactiveMessage)
+    await insertProactiveMessage(convId, proactiveMessage, 'bridge_status')
   }
 
   return NextResponse.json({

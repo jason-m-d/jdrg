@@ -95,7 +95,7 @@ export function DigestBanner() {
               .gte('parsed_at', lastVisit),
             supabase.from('messages').select('id', { count: 'exact', head: true })
               .eq('role', 'assistant')
-              .or('content.like.☀️ **Morning Briefing%,content.like.⚡ **Alert%')
+              .or('message_type.not.is.null,content.like.☀️ **Morning Briefing%,content.like.⚡ **Alert%,content.like.📌 **Nudge%,content.like.📌 Nudge%')
               .gte('created_at', lastVisit),
           ])
           const total = (salesRes.count || 0) + (proactiveRes.count || 0)

@@ -28,11 +28,12 @@ export async function getMainConversation(): Promise<string> {
 /**
  * Insert a proactive assistant message into a conversation.
  */
-export async function insertProactiveMessage(conversationId: string, content: string) {
+export async function insertProactiveMessage(conversationId: string, content: string, messageType?: string) {
   await supabaseAdmin.from('messages').insert({
     conversation_id: conversationId,
     role: 'assistant',
     content,
+    ...(messageType ? { message_type: messageType } : {}),
   })
 
   // Touch conversation timestamp so it surfaces

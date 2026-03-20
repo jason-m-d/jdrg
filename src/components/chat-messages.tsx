@@ -160,18 +160,38 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
   )
 }
 
-function isProactiveMessage(content: string) {
-  return content.startsWith('☀️ **Morning Briefing') || content.startsWith('⚡ **Alert')
+const MESSAGE_TYPE_CONFIG: Record<string, { label: string; emoji: string; borderColor: string; badgeColor: string; bgColor: string }> = {
+  briefing:       { label: 'Briefing',      emoji: '☀️', borderColor: 'border-amber-500/30',  badgeColor: 'text-amber-500/60',  bgColor: 'bg-amber-500/[0.03]' },
+  nudge:          { label: 'Nudge',         emoji: '📌', borderColor: 'border-pink-400/30',   badgeColor: 'text-pink-400/60',   bgColor: 'bg-pink-400/[0.03]' },
+  alert:          { label: 'Alert',         emoji: '⚡', borderColor: 'border-red-500/30',    badgeColor: 'text-red-500/60',    bgColor: 'bg-red-500/[0.03]' },
+  watch_match:    { label: 'Watch Match',   emoji: '👀', borderColor: 'border-blue-500/30',   badgeColor: 'text-blue-500/60',   bgColor: 'bg-blue-500/[0.03]' },
+  email_heads_up: { label: 'Heads Up',      emoji: '📧', borderColor: 'border-blue-500/30',   badgeColor: 'text-blue-500/60',   bgColor: 'bg-blue-500/[0.03]' },
+  bridge_status:  { label: 'Bridge Status', emoji: '🔌', borderColor: 'border-gray-400/30',   badgeColor: 'text-gray-400/60',   bgColor: 'bg-gray-400/[0.03]' },
 }
 
-function ProactiveFeedback({ messageContent }: { messageContent: string }) {
+function resolveMessageType(message: any): string | null {
+  // Prefer explicit DB column
+  if (message.message_type) return message.message_type
+  // Fallback: detect from content prefixes (for old messages)
+  const content = message.content || ''
+  if (content.startsWith('☀️ **Morning Briefing') || content.startsWith('☀️ Morning Briefing')) return 'briefing'
+  if (content.startsWith('📌 **Nudge') || content.startsWith('📌 Nudge')) return 'nudge'
+  if (content.startsWith('⚡ **Alert') || content.startsWith('⚡ Alert')) return 'alert'
+  if (content.includes('iMessage bridge is offline') || content.includes('iMessage bridge is back online') || (content.startsWith('Heads up') && content.includes('iMessage bridge'))) return 'bridge_status'
+  if (content.startsWith('**Heads up** -') || content.startsWith('Heads up -')) return 'email_heads_up'
+  if (content.startsWith('**Possible match** -') || content.startsWith('Possible match -')) return 'watch_match'
+  return null
+}
+
+function ProactiveFeedback({ messageType }: { messageType: string }) {
   const [showInput, setShowInput] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [sent, setSent] = useState(false)
 
   async function handleSubmit() {
     if (!feedback.trim()) return
-    const prefix = messageContent.startsWith('☀️') ? 'Briefing feedback' : 'Alert feedback'
+    const typeConfig = MESSAGE_TYPE_CONFIG[messageType]
+    const prefix = typeConfig ? `${typeConfig.label} feedback` : 'Feedback'
     await getSupabaseBrowser().from('memories').insert({
       content: `${prefix}: ${feedback.trim()}`,
       category: 'preference',
@@ -221,9 +241,9 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
   const [showSources, setShowSources] = useState(false)
   const isUser = message.role === 'user'
   const time = formatTime(message.created_at)
-  const isProactive = !isUser && isProactiveMessage(message.content || '')
-  const isBriefing = !isUser && (message.content || '').startsWith('☀️ **Morning Briefing')
-  const isAlert = !isUser && (message.content || '').startsWith('⚡ **Alert')
+  const messageType = !isUser ? resolveMessageType(message) : null
+  const typeConfig = messageType ? MESSAGE_TYPE_CONFIG[messageType] : null
+  const isProactive = !!typeConfig
 
   return (
     <div className={cn("py-5 group", isLatest && "animate-in-up", isUser && "flex flex-col items-end")}>
@@ -232,11 +252,8 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
         <span className="text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium">
           {isUser ? 'You' : 'Crosby'}
         </span>
-        {isBriefing && (
-          <span className="text-[0.625rem] uppercase tracking-wider text-amber-500/60">Briefing</span>
-        )}
-        {isAlert && (
-          <span className="text-[0.625rem] uppercase tracking-wider text-red-500/60">Alert</span>
+        {typeConfig && (
+          <span className={cn("text-[0.625rem] uppercase tracking-wider", typeConfig.badgeColor)}>{typeConfig.label}</span>
         )}
         {time && (
           <span className="text-[0.625rem] text-muted-foreground/30 tabular-nums">{time}</span>
@@ -247,8 +264,7 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
       <div className={cn(
         "text-[0.9375rem] leading-[1.7]",
         isUser ? "text-foreground bg-muted/50 px-4 py-2.5 rounded-2xl rounded-tr-sm max-w-[85%]" : "text-foreground/95 tracking-[0.01em] font-light",
-        isBriefing && "border-l-2 border-amber-500/30 pl-4",
-        isAlert && "border-l-2 border-red-500/30 pl-4",
+        typeConfig && `border-l-2 ${typeConfig.borderColor} pl-4 ${typeConfig.bgColor} py-3 pr-4 rounded-r-lg`,
       )}>
         <FormattedContent content={message.content} />
         {isStreaming && (
@@ -308,7 +324,7 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
       )}
 
       {/* Proactive feedback */}
-      {isProactive && <ProactiveFeedback messageContent={message.content} />}
+      {isProactive && messageType && <ProactiveFeedback messageType={messageType} />}
 
       {/* Action Items */}
       {message.actionItemEvents && message.actionItemEvents.length > 0 && (

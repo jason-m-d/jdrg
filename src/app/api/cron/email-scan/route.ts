@@ -561,7 +561,8 @@ async function processWatchMatches(matches: Awaited<ReturnType<typeof checkWatch
     }
 
     // Post proactive message
-    await insertProactiveMessage(convId, messageText)
+    const watchMessageType = watch.priority === 'high' ? 'email_heads_up' : 'watch_match'
+    await insertProactiveMessage(convId, messageText, watchMessageType)
 
     // Push notification
     const pushTitle = watch.priority === 'high' ? 'Watch Alert' : 'Watch Match'
@@ -629,7 +630,7 @@ async function maybeGenerateAlert(newActionItemCount: number) {
     .select('id')
     .eq('conversation_id', convId)
     .eq('role', 'assistant')
-    .like('content', '⚡ **Alert**%')
+    .or('message_type.eq.alert,content.like.⚡ **Alert**%')
     .gte('created_at', new Date(Date.now() - 2 * 3600000).toISOString())
     .limit(1)
 
@@ -647,7 +648,7 @@ async function maybeGenerateAlert(newActionItemCount: number) {
   const alertText = response.content[0].type === 'text' ? response.content[0].text : ''
   if (!alertText) return
 
-  await insertProactiveMessage(convId, `⚡ **Alert**\n\n${alertText}`)
+  await insertProactiveMessage(convId, `⚡ Alert\n\n${alertText}`, 'alert')
 
   // Push notification
   await sendPushToAll('Alert', alertText.slice(0, 200), `/chat/${convId}`)

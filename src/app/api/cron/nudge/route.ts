@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'AI returned empty nudge', nudged: false })
   }
 
-  await insertProactiveMessage(convId, `📌 **Nudge**\n\n${nudgeText}`)
+  await insertProactiveMessage(convId, `📌 Nudge\n\n${nudgeText}`, 'nudge')
   await sendPushToAll('Nudge', nudgeText.slice(0, 200), `/chat/${convId}`)
 
   // Update last_nudged_at on all candidate action items
