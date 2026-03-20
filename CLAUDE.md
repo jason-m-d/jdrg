@@ -1,5 +1,8 @@
 # Crosby Project Instructions
 
+## Engineering Standards
+- Never apply band-aid fixes. Always fix the root cause of an issue — not just the symptom. If a root cause fix requires more digging or a larger change, say so instead of patching over it.
+
 ## Dev Server
 - Claude is responsible for starting, stopping, and restarting the dev server as needed.
 - The dev server runs on port 3010: `npm run dev` (which runs `next dev -p 3010`)
@@ -173,6 +176,14 @@ When you hit a problem and figure out the fix (or Jason tells you the fix), you 
   - **`request_additional_context` tool:** A self-correction mechanism - if the router misclassifies and the model needs data that wasn't loaded, it can call this tool to fetch additional data blocks mid-response.
 - **When making changes during the refactor:** always keep the old `classifyIntent()` as a fallback. The router has a 3-second timeout and falls back to regex classification if it fails.
 - **Terminology:** "Conversation" = the one long-running chat. "Session" = a chapter within it (auto-closes after 30 messages or 2hr idle). Don't use "new conversation" when you mean "new session."
+
+## Product Direction (Silos)
+- Crosby is evolving from a bespoke single-user assistant into a consumer product. The full product vision lives in `CROSBY-PRODUCT-VISION.md`.
+- The core concept is **silos** - self-contained capability modules (tools, data connections, sync jobs, dashboard widgets, prompt context) that can be created by the system or by the user via natural language.
+- Current specialists (email, calendar, sales, tasks, documents, texts) will become default silos. Users will eventually be able to create custom silos ("connect my Toast POS", "integrate Shopify", etc.) through an agentic builder.
+- **When building new features:** consider whether this should be structured as a silo. New integrations, data sources, or tool bundles should follow the silo pattern (declarative trigger rules, self-contained prompt sections, own data layer) rather than being hardcoded into the core.
+- **Core platform vs silos:** The chat interface, router, dashboard framework, notification system, and shared data layer (contacts, etc.) are core platform. Everything else is a silo.
+- Don't prematurely refactor existing code into silos - just keep the direction in mind so new work aligns with where we're headed.
 
 ## Crosby Eval Skill (QA Co-Pilot)
 - The eval skill lives at `.claude/commands/crosby-eval/SKILL.md`. It's what Jason uses with Claude Code to QA Crosby's responses.

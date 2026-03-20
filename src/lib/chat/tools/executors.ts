@@ -477,6 +477,27 @@ export async function executeArtifactTool(
   if (input.operation === 'create') {
     if (!input.name || !input.content) return { status: 'error', message: 'Name and content are required' }
 
+    // Dedup check: reject if a similarly-named artifact already exists in this conversation
+    const { data: existing } = await supabaseAdmin
+      .from('artifacts')
+      .select('id, name')
+      .eq('conversation_id', conversationId)
+
+    if (existing && existing.length > 0) {
+      const newWords = input.name.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+      const duplicate = existing.find((a: any) => {
+        const existingWords = a.name.toLowerCase().split(/\s+/)
+        const matches = newWords.filter(w => existingWords.some((ew: string) => ew.includes(w) || w.includes(ew)))
+        return matches.length >= Math.min(2, newWords.length)
+      })
+      if (duplicate) {
+        return {
+          status: 'duplicate',
+          message: `An artifact named "${duplicate.name}" already exists (id: ${duplicate.id}). Use operation "update" with artifact_id "${duplicate.id}" instead of creating a duplicate.`,
+        }
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from('artifacts')
       .insert({
