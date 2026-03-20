@@ -20,6 +20,8 @@ export const coreSpecialist: SpecialistDefinition = {
     'manage_preferences',
     'search_conversation_history',
     'get_activity_log',
+    'manage_project',
+    'manage_bookmarks',
   ],
   // Core owns tools but does NOT force-load data blocks on every message.
   // The router decides which blocks to load per message (memories, notes, contacts, watches, decisions).
@@ -45,9 +47,16 @@ export const coreSpecialist: SpecialistDefinition = {
 
 {{preferences_section}}
 
+{{projects_section}}
+
+{{project_system_prompt_section}}
+
+{{relevant_projects_hint}}
+
 WEB SEARCH:
-- Use search_web when you need real-world facts: locations, addresses, distances, business hours, venue details, school locations, current events, etc.
-- Don't guess at geography or factual details - search instead.
+- Use search_web whenever you're not certain about something: apps, companies, products, people, places, events, addresses, business hours, current news, prices — anything you might not know or that may have changed.
+- If Jason mentions something you don't recognize (an app, a company, a person, a term), search it before responding. Don't guess or say you can't find it without trying.
+- Don't guess at facts - search instead.
 - Cite the source when sharing searched information.
 
 TRAINING/FEEDBACK:

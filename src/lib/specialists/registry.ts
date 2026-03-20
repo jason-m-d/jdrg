@@ -6,6 +6,7 @@ import { calendarSpecialist } from './built-in/calendar'
 import { salesSpecialist } from './built-in/sales'
 import { tasksSpecialist, tasksCriticalSpecialist } from './built-in/tasks'
 import { documentsSpecialist } from './built-in/documents'
+import { artifactsSpecialist } from './built-in/artifacts'
 import { textsSpecialist } from './built-in/texts'
 import { coreSpecialist } from './built-in/core'
 
@@ -71,6 +72,7 @@ export async function loadUserSpecialists(): Promise<SpecialistDefinition[]> {
   calendarSpecialist,
   salesSpecialist,
   documentsSpecialist,
+  artifactsSpecialist,
   textsSpecialist,
 ].forEach(registerSpecialist)
 
