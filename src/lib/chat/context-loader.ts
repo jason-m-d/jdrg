@@ -192,13 +192,13 @@ export async function loadDataBlocks(options: ContextLoaderOptions): Promise<Rec
       ? supabaseAdmin.from('projects').select('id, name, description').order('name')
       : Promise.resolve({ data: [] }),
 
-    // artifacts
-    dataNeeded.has('artifacts') && conversation_id
+    // artifacts — global, not scoped to conversation
+    dataNeeded.has('artifacts')
       ? supabaseAdmin
           .from('artifacts')
-          .select('*')
-          .eq('conversation_id', conversation_id)
+          .select('id, name, type, content, version, updated_at, conversation_id, project_id')
           .order('updated_at', { ascending: false })
+          .limit(20)
       : Promise.resolve({ data: [] }),
 
     // contacts
