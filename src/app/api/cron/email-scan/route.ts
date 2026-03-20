@@ -88,8 +88,9 @@ const EMAIL_EXTRACTION_SCHEMA = {
     },
     needs_response: { type: 'boolean' },
     is_automated: { type: 'boolean' },
+    delivery_failure: { type: 'boolean' },
   },
-  required: ['action_items', 'updates', 'needs_response', 'is_automated'],
+  required: ['action_items', 'updates', 'needs_response', 'is_automated', 'delivery_failure'],
   additionalProperties: false,
 }
 
@@ -164,19 +165,24 @@ ACTIVE PROJECTS (if an action item clearly relates to a project, include the pro
 For each action item, include a "confidence" score (0.0-1.0).
 1.0 = certain this is an action item. 0.7-0.9 = likely. 0.5-0.7 = uncertain. Below 0.5 = probably not, don't include.
 
+DUE DATE EXTRACTION: If the email mentions a deadline, due date, expiry date, or compliance deadline, extract it as an ISO date string (YYYY-MM-DD) in the "due_date" field. Look for phrases like "by [date]", "before [date]", "deadline", "expires", "must be completed by", "required by", "must be replaced by", "end of quarter". If no date is mentioned, set due_date to null.
+
+DELIVERY FAILURE DETECTION: If this reply indicates the sender had trouble receiving, opening, or accessing something you sent (broken link, file they couldn't open, attachment they didn't receive, access denied error, download error, etc.), set "delivery_failure": true. Otherwise set it to false.
+
 Also classify each email:
 - "needs_response": true if this email is from a real person (not automated) and expects or would benefit from a reply from Jason. false for FYI, newsletters, automated, or already-answered threads.
 - "is_automated": true if this is an automated/system email (order confirmations, alerts, reports, newsletters, no-reply senders). false if from a real person.
 
 Return JSON:
 {
-  "action_items": [{"title": "...", "description": "...", "priority": "high|medium|low", "due_date": null, "source_snippet": "...", "confidence": 0.9, "related_project": "Project Name or null"}],
+  "action_items": [{"title": "...", "description": "...", "priority": "high|medium|low", "due_date": "2026-08-15", "source_snippet": "...", "confidence": 0.9, "related_project": "Project Name or null"}],
   "updates": [{"item_id": "uuid", "description": "updated description", "priority": "high|medium|low", "due_date": "2026-01-20"}],
   "needs_response": true,
-  "is_automated": false
+  "is_automated": false,
+  "delivery_failure": false
 }
 
-Return {"action_items": [], "updates": [], "needs_response": false, "is_automated": true} for automated emails with no action items.`
+Return {"action_items": [], "updates": [], "needs_response": false, "is_automated": true, "delivery_failure": false} for automated emails with no action items.`
 
 export const maxDuration = 60
 
@@ -223,8 +229,8 @@ export async function POST(req: NextRequest) {
     .map((item: any) => `- [${item.id}] "${item.title}" (${item.status}, ${item.priority})${item.due_date ? ` due: ${item.due_date}` : ''}`)
     .join('\n') || '(none)'
 
-  // Build set of email IDs that already have action items — used to skip re-insertion
-  const emailsWithItems = new Set((existingItems || []).map((item: any) => item.source_id).filter(Boolean))
+  // Build set of thread IDs that already have action items — used to skip re-insertion
+  const threadsWithItems = new Set((existingItems || []).map((item: any) => item.source_id).filter(Boolean))
 
   const projectsList = (projects || [])
     .map((p: any) => `- "${p.name}"${p.description ? `: ${p.description}` : ''}`)
@@ -340,10 +346,44 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Handle delivery failure — creates a high-priority action item and marks thread as needing response
+          if (parsed.delivery_failure === true && email.threadId) {
+            const senderName = email.from.replace(/<[^>]+>/, '').trim()
+            if (!threadsWithItems.has(email.threadId)) {
+              await supabaseAdmin.from('action_items').insert({
+                title: `Resend to ${senderName}`,
+                description: `${senderName} reported trouble receiving, opening, or accessing something you sent.\n\nEmail: "${email.subject}"`,
+                source: 'email',
+                source_id: email.threadId,
+                source_snippet: email.body.slice(0, 300),
+                priority: 'high',
+                due_date: new Date().toISOString().split('T')[0],
+                confidence: 0.95,
+              })
+              threadsWithItems.add(email.threadId)
+              itemsFound++
+            }
+            // Mark thread as needing a response regardless of whether we just inserted
+            await supabaseAdmin.from('email_threads').upsert({
+              gmail_thread_id: email.threadId,
+              gmail_account: account,
+              subject: email.subject,
+              last_sender: email.from.replace(/<[^>]+>/, '').trim(),
+              last_sender_email: extractEmail(email.from),
+              last_message_date: email.internalDate
+                ? new Date(parseInt(email.internalDate)).toISOString()
+                : new Date().toISOString(),
+              direction: 'inbound',
+              needs_response: true,
+              response_detected: false,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'gmail_thread_id,gmail_account' })
+          }
+
           // Handle new action items
           if (parsed.action_items?.length > 0) {
-            // Skip entirely if this email already produced action items
-            if (emailsWithItems.has(email.id)) continue
+            // Skip entirely if this thread already has an active action item
+            if (threadsWithItems.has(email.threadId)) continue
 
             const isHighPriority = email.from.includes('@wingstop.com') ||
               WINGSTOP_STORES.some(s => email.body.includes(s) || email.subject.includes(s))
@@ -357,7 +397,7 @@ export async function POST(req: NextRequest) {
                 title: item.title,
                 description: (item.description || '') + projectNote,
                 source: 'email',
-                source_id: email.id,
+                source_id: email.threadId,
                 source_snippet: item.source_snippet || email.subject,
                 priority: isHighPriority ? 'high' : (item.priority || 'medium'),
                 due_date: item.due_date || null,
@@ -365,6 +405,7 @@ export async function POST(req: NextRequest) {
               })
               itemsFound++
             }
+            threadsWithItems.add(email.threadId)
           }
 
           // Handle updates to existing items

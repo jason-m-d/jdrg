@@ -83,7 +83,13 @@ None — `source_id` column already exists on `action_items`. Just need to confi
 ALTER TABLE email_threads ADD COLUMN waiting_for_reply_since timestamptz;
 ```
 
-**Detection logic during scan:** In the `isFromJason` branch in `email-scan/route.ts`, add an AI prompt: "Does this outbound email expect a reply? Look for: questions asked, requests made, proposals/quotes sent, 'let me know', 'please confirm', 'can you', 'thoughts?'. Return `expects_reply: true/false`."
+**Detection logic — two paths depending on whether the webhook (Phase 5) is active:**
+
+**Path A — Webhook active (real-time mode):**
+Each email (inbound or outbound) already triggers a Pub/Sub notification. When the webhook endpoint processes a message and sees it's from Jason, run the `expects_reply` check as part of that same AI call — not a separate one. One webhook fire, one AI call, handles thread state update + `expects_reply` check together. No extra cost.
+
+**Path B — Webhook not active (hourly fallback mode):**
+Don't make a separate AI call per outbound email. Instead, batch all outbound emails from the scan window into the existing extraction prompt. Add an instruction: "For outbound emails from Jason, also return `expects_reply: true/false`." This adds zero extra API calls — it's just an extra field in the existing batch extraction.
 
 **If `expects_reply: true`:** Set `waiting_for_reply_since = now()` on the thread.
 
@@ -146,15 +152,11 @@ CREATE TABLE gmail_watch_state (
 **5. Keep hourly cron as a safety net**
 The hourly scan should stay but act as a fallback — if the webhook missed something (Pub/Sub delivery failure, Vercel cold start timeout), the hourly pass catches it. When the hourly scan runs, it compares the current `historyId` against what's stored and only processes the delta.
 
-### Scan frequency setting (UI)
+**Note on idempotency:** The webhook can fire multiple times for the same event (Pub/Sub retries on non-200 responses). The dedup fix from Phase 1 (checking for existing action items by `source_id` before inserting) is a prerequisite here — without it, webhook retries would create duplicate action items. Phase 1 must be shipped before Phase 5.
 
-Add a setting in the app (Settings page, under "Email") with three options:
+### Scan frequency setting (future, not v1)
 
-- **Real-time** (default when webhook is active) — uses Gmail push notifications
-- **Every 15 minutes** — adds a `*/15 * * * *` cron as a middle ground
-- **Every hour** — current default, good enough for low-volume inboxes
-
-Store the preference in `ui_preferences` or a dedicated `notification_settings` table. The cron jobs in `vercel.json` would need to reflect whatever is active (or the cron always runs but checks the preference and skips if real-time webhook is active).
+Vercel cron schedules are baked into `vercel.json` at deploy time — you can't change them from a UI without a redeploy. For v1, skip the settings UI and just ship the webhook + hourly fallback. If you later want a 15-minute option, it's a one-line change to `vercel.json` plus a preference check at the top of the cron handler to skip if the webhook is active.
 
 ---
 
@@ -166,4 +168,4 @@ Store the preference in `ui_preferences` or a dedicated `notification_settings` 
 4. **Phase 4** (outbound tracking) — half day, new column + nudge integration
 5. **Phase 5** (Gmail webhook) — 1 day, biggest lift but highest impact
 
-Phases 1-3 can be done in a single session. Phase 4 and 5 are separate sessions.
+Phases 1-3 can be done in a single session. Phase 4 is a separate session. Phase 5 (Gmail webhook) is the biggest lift — budget 2 days, not 1. Google Cloud auth setup reliably takes longer than expected.
