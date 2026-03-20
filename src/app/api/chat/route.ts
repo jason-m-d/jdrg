@@ -374,9 +374,11 @@ export async function POST(req: NextRequest) {
                   let toolResult: any
                   if (currentToolUse.name === 'manage_artifact') {
                     toolResult = await executeArtifactTool(toolInput, convId, project_id)
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                      artifact: { operation: toolInput.operation, artifact: toolResult.artifact },
-                    })}\n\n`))
+                    if (toolResult.artifact) {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                        artifact: { operation: toolInput.operation, artifact: toolResult.artifact },
+                      })}\n\n`))
+                    }
                   } else if (currentToolUse.name === 'manage_project_context') {
                     toolResult = await executeManageProjectContext(toolInput)
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ project_context: toolResult })}\n\n`))

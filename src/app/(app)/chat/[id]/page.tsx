@@ -164,14 +164,16 @@ export default function ConversationPage() {
               if (data.artifact) {
                 artifactEvents.push(data.artifact)
                 const art = data.artifact.artifact as Artifact
-                setArtifacts(prev => {
-                  const exists = prev.find(a => a.id === art.id)
-                  if (exists) return prev.map(a => a.id === art.id ? art : a)
-                  return [art, ...prev]
-                })
-                setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
-                setActiveArtifactId(art.id)
-                setShowArtifactPanel(true)
+                if (art?.id) {
+                  setArtifacts(prev => {
+                    const exists = prev.find(a => a.id === art.id)
+                    if (exists) return prev.map(a => a.id === art.id ? art : a)
+                    return [art, ...prev]
+                  })
+                  setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
+                  setActiveArtifactId(art.id)
+                  setShowArtifactPanel(true)
+                }
               }
               if (data.done) {
                 if (data.sources) sources = data.sources

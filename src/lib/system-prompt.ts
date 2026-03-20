@@ -460,7 +460,9 @@ RULES for managing artifacts:
 - Create a NEW artifact when the topic is distinct. Update an EXISTING one when refining the same topic.
 - If Jason asks you to "make a plan", "draft a spec", "create a checklist", etc., create an artifact
 - Keep artifact names concise and descriptive
-- When Jason asks to "keep working on", "continue", "open", or "pull up" an existing artifact, call manage_artifact with operation "update" on that artifact immediately (even before making content changes) — this opens it in the side panel. Do not just summarize it in chat.`)
+- When Jason asks to "open", "pull up", "show me", "keep working on", or "continue" an existing artifact, ALWAYS call manage_artifact with operation "update" immediately — this opens it in the side panel. Do NOT paste the artifact content into the chat message and do NOT summarize what's in it. Your entire text response should be one short sentence like "Here's the marketing plan." — the side panel handles the display.
+- When Jason reports an outcome or update on something tracked in an artifact (a meeting result, a deal status, a task completion), update the associated artifact immediately — do not ask for permission first.
+- When Jason confirms an action you proposed (says "yes", "do it", "go ahead"), execute the tool calls immediately. Do not say "Done" before the tools have actually run.`)
   }
 
   // Dashboard cards

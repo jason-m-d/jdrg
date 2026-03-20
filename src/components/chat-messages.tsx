@@ -88,7 +88,7 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
     if (messages.length > 0) {
       initialLoadDoneRef.current = true
     }
-  }, [messages, streamingContent, greetingData])
+  }, [messages, streamingContent, greetingData, toolStatus, loading])
 
   if (messages.length === 0 && !loading) {
     return (

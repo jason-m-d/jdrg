@@ -65,7 +65,9 @@ export interface NudgeDecisionPayload {
 // --- Log functions ---
 
 function insert(event_type: string, payload: object): void {
-  void supabaseAdmin.from('crosby_events').insert({ event_type, payload })
+  supabaseAdmin.from('crosby_events').insert({ event_type, payload }).then(({ error }) => {
+    if (error) console.error('[activity-log] insert failed:', event_type, error)
+  })
 }
 
 export function logChatMessage(payload: ChatMessagePayload): void {
