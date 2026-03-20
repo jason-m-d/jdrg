@@ -360,7 +360,7 @@ RULES for managing projects (create/update/archive):
       const preview = a.content.slice(0, 100) + (a.content.length > 100 ? '...' : '')
       return `- [${a.id}] "${a.name}" (${a.type}, v${a.version}): ${preview}`
     })
-    return `\n\n--- Open Artifacts ---
+    return `\n\n--- Artifacts (this is the complete and current list — do not reference artifacts from conversation history that are not listed here) ---
 ${artifactLines.join('\n\n')}
 ${artifactRules}`
   })
