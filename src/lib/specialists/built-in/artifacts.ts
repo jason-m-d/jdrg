@@ -8,7 +8,6 @@ export const artifactsSpecialist: SpecialistDefinition = {
   dataNeeded: ['artifacts'],
   triggerRules: {
     trigger_tools: ['manage_artifact', 'open_artifact', 'manage_project_context'],
-    trigger_data: ['artifacts'],
   },
   source: 'built_in',
   systemPromptSection: `{{artifacts_section}}
