@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { fetchEmails } from '@/lib/gmail'
-import { getMainConversation, insertProactiveMessage, getUserPreferences } from '@/lib/proactive'
+import { getMainConversation, insertProactiveMessage, getUserPreferences, rewriteForTone } from '@/lib/proactive'
 import { buildFewShotBlock } from '@/lib/training'
 import { sendPushToAll } from '@/lib/push'
 import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount, logAutoTrigger } from '@/lib/background-jobs'
@@ -536,6 +536,16 @@ async function processWatchMatches(matches: Awaited<ReturnType<typeof checkWatch
     if (watchMatches.length > 1) {
       messageText += `\n\n(${watchMatches.length - 1} more related email${watchMatches.length > 2 ? 's' : ''} also matched this watch.)`
     }
+    const match = watchMatches[0]
+    const watchMsgType = watch.priority === 'high' ? 'email_heads_up' as const : 'watch_match' as const
+    messageText = await rewriteForTone(messageText, {
+      type: watchMsgType,
+      sender: match.email.from.replace(/<[^>]+>/, '').trim(),
+      subject: match.email.subject,
+      emailPreview: match.email.body.slice(0, 200),
+      watchContext: match.watch.context,
+      confidence: match.confidence,
+    })
 
     // Update watch status
     if (watch.watch_type === 'email_reply') {

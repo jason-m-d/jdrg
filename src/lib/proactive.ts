@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase'
+import { openrouterClient } from './openrouter'
 import type { NotificationRule } from './types'
 
 /**
@@ -41,6 +42,46 @@ export async function insertProactiveMessage(conversationId: string, content: st
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', conversationId)
+}
+
+/**
+ * Rewrite a template-generated proactive message in a natural, conversational tone.
+ * Used for watch matches and bridge status messages (briefing/nudge/alert are already AI-generated).
+ * Falls back to the original content if the rewrite fails.
+ */
+export async function rewriteForTone(rawContent: string, context: {
+  type: 'watch_match' | 'email_heads_up' | 'bridge_status'
+  sender?: string
+  subject?: string
+  emailPreview?: string
+  watchContext?: string
+  confidence?: string
+}): Promise<string> {
+  try {
+    const systemPrompt = context.type === 'bridge_status'
+      ? `You're Crosby, Jason's AI chief of staff. Rewrite this iMessage bridge status notification in a brief, natural tone. Keep it under 3 sentences. Be direct but not robotic. Don't use bold or markdown formatting.`
+      : `You're Crosby, Jason's AI chief of staff. Rewrite this watch match notification in a natural, conversational tone. Rules:
+- Lead with WHO did WHAT: "${context.sender} got back to you about X" not "This is a direct follow-up from..."
+- Quote the relevant part of the email in quotation marks on its own line
+- Connect it briefly to what Jason cares about in plain English. Don't dump raw action item names or watch titles
+- Never mention watches, matches, confidence levels, or system internals
+- 3 lines max. No bold or markdown formatting.`
+
+    const response = await openrouterClient.chat.completions.create({
+      model: 'google/gemini-2.0-flash-001',
+      max_tokens: 256,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: rawContent },
+      ],
+      ...({ models: ['google/gemini-2.0-flash-001', 'google/gemini-flash-1.5'], provider: { sort: 'price' } } as any),
+    } as any)
+
+    const rewritten = response.choices[0]?.message?.content?.trim()
+    return rewritten || rawContent
+  } catch {
+    return rawContent
+  }
 }
 
 /**

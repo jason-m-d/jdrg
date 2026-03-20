@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getMainConversation, insertProactiveMessage } from '@/lib/proactive'
+import { getMainConversation, insertProactiveMessage, rewriteForTone } from '@/lib/proactive'
 
 export const maxDuration = 30
 
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
 
   // Send proactive message if needed
   if (proactiveMessage) {
+    proactiveMessage = await rewriteForTone(proactiveMessage, { type: 'bridge_status' })
     const convId = await getMainConversation()
     await insertProactiveMessage(convId, proactiveMessage, 'bridge_status')
   }
