@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Loader2, Trash2, FileText, X } from 'lucide-react'
+import { ArrowDown, Loader2, Trash2, FileText, X } from 'lucide-react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { ChatMessages } from '@/components/chat-messages'
 import { ChatInput, type ChatInputHandle } from '@/components/chat-input'
@@ -26,6 +26,27 @@ export default function ConversationPage() {
   const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null)
   const [showArtifactPanel, setShowArtifactPanel] = useState(false)
   const chatInputRef = useRef<ChatInputHandle>(null)
+  const [showScrollButton, setShowScrollButton] = useState(false)
+
+  // Track scroll position to show/hide "scroll to latest" button
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    function handleScroll() {
+      if (!container) return
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      setShowScrollButton(distanceFromBottom > 200)
+    }
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    }
+  }, [])
 
   useEffect(() => {
     const supabase = getSupabaseBrowser()
@@ -286,6 +307,18 @@ export default function ConversationPage() {
             }}
           />
         </div>
+
+        {showScrollButton && (
+          <div className="flex justify-center -mb-2 relative z-10">
+            <button
+              onClick={scrollToBottom}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 backdrop-blur-sm border border-border/40 text-muted-foreground/70 hover:text-foreground hover:bg-muted transition-all text-[0.75rem] shadow-sm"
+            >
+              <ArrowDown className="size-3" />
+              Latest
+            </button>
+          </div>
+        )}
 
         <ChatInput ref={chatInputRef} onSubmit={handleSubmit} loading={loading} storageKey={id} />
       </div>
