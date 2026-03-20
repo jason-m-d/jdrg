@@ -298,7 +298,9 @@ export async function POST(req: NextRequest) {
               artifact: { operation: 'create', artifact: toolResult.artifact },
             })}\n\n`))
 
-            // Inject completed tool call into history so model responds naturally
+            // Inject a completed create exchange with a placeholder, then instruct the model
+            // to update the artifact with real content. This prevents a double-create where the
+            // model calls manage_artifact again after seeing the placeholder was created.
             preExecutedArtifactMessages = [
               {
                 role: 'assistant' as const,
@@ -306,7 +308,7 @@ export async function POST(req: NextRequest) {
               },
               {
                 role: 'user' as const,
-                content: [{ type: 'tool_result' as const, tool_use_id: toolId, content: JSON.stringify({ status: 'created', artifact: { id: toolResult.artifact.id, name: toolResult.artifact.name } }) }],
+                content: [{ type: 'tool_result' as const, tool_use_id: toolId, content: JSON.stringify({ status: 'created', artifact: { id: toolResult.artifact.id, name: toolResult.artifact.name }, instruction: `Artifact created with placeholder content. Now call manage_artifact with operation "update", artifact_id "${toolResult.artifact.id}", and write the real content the user asked for. Do NOT create a new artifact.` }) }],
               },
             ]
             console.log(`[Chat] server-side artifact pre-executed: "${artifactName}" (${artifactType}) id=${toolResult.artifact.id}`)
