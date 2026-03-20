@@ -256,11 +256,70 @@ export async function POST(req: NextRequest) {
         while (deduped.length > 0 && deduped[0].role !== 'user') deduped.shift()
         while (deduped.length > 0 && deduped[deduped.length - 1].role !== 'user') deduped.pop()
 
+        // Server-side artifact pre-execution: if the user is clearly asking to create an artifact,
+        // execute the tool server-side, emit the SSE to open the panel, inject the completed exchange
+        // into history, then remove manage_artifact from the active tools so the model can't
+        // double-create. Bypasses the model's tendency to hallucinate "Done!" in long conversations.
+        const isArtifactCreate = activeToolNames.includes('manage_artifact') &&
+          /create|make|build|draft|write/i.test(message) &&
+          /checklist|plan|spec|doc|list|artifact/i.test(message) &&
+          !/update|edit|change|modify|open|show/i.test(message)
+
+        const preExecutedArtifactMessages: Anthropic.Messages.MessageParam[] = []
+
+        if (isArtifactCreate) {
+          const isChecklist = /checklist/i.test(message)
+          const isPlan = /plan/i.test(message)
+          const isSpec = /spec/i.test(message)
+          const artifactType = isChecklist ? 'checklist' : isPlan ? 'plan' : isSpec ? 'spec' : 'freeform'
+
+          const nameRaw = message
+            .replace(/^(create|make|build|draft|write)\s+(a|an|the)?\s*/i, '')
+            .replace(/\s+(with|for|about|of).*$/i, '')
+            .trim()
+          const artifactName = nameRaw.charAt(0).toUpperCase() + nameRaw.slice(1) || 'Document'
+
+          const placeholderContent = isChecklist
+            ? '- [ ] Add your items here'
+            : '# ' + artifactName + '\n\nAdd content here.'
+
+          const toolId = 'server_artifact_' + Date.now()
+          const toolResult = await executeArtifactTool(
+            { operation: 'create', name: artifactName, type: artifactType, content: placeholderContent },
+            convId,
+            project_id
+          )
+
+          if (toolResult.artifact) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              artifact: { operation: 'create', artifact: toolResult.artifact },
+            })}\n\n`))
+
+            preExecutedArtifactMessages.push(
+              {
+                role: 'assistant' as const,
+                content: [{ type: 'tool_use' as const, id: toolId, name: 'manage_artifact', input: { operation: 'create', name: artifactName, type: artifactType, content: placeholderContent } }],
+              },
+              {
+                role: 'user' as const,
+                content: [{ type: 'tool_result' as const, tool_use_id: toolId, content: JSON.stringify({ status: 'created', artifact: { id: toolResult.artifact.id, name: toolResult.artifact.name } }) }],
+              }
+            )
+
+            // Remove manage_artifact from tools so the model can't create a second artifact
+            const idx = activeTools.findIndex(t => t.name === 'manage_artifact')
+            if (idx !== -1) activeTools.splice(idx, 1)
+
+            console.log(`[Chat] server-side artifact pre-executed: "${artifactName}" (${artifactType}) id=${toolResult.artifact.id}`)
+          }
+        }
+
         const chatMessages: Anthropic.Messages.MessageParam[] = [
           ...deduped.map((m: any) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),
+          ...preExecutedArtifactMessages,
         ]
 
 
