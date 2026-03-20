@@ -15,8 +15,21 @@ export function parseJSON(text: string) {
   return JSON.parse(cleaned)
 }
 
+// In-process debounce: track when extraction last ran to avoid parallel duplicate runs.
+let lastExtractionAt = 0
+const EXTRACTION_DEBOUNCE_MS = 5000
+
 export async function extractMemories(conversationId: string, userMessage: string, assistantResponse: string) {
   try {
+    // Debounce: skip if another extraction ran in the last 5 seconds.
+    // Prevents duplicate memories when two messages arrive in rapid succession.
+    const now = Date.now()
+    if (now - lastExtractionAt < EXTRACTION_DEBOUNCE_MS) {
+      console.log('Memory: skipping extraction — ran < 5s ago')
+      return
+    }
+    lastExtractionAt = now
+
     // Load existing memories so Claude can avoid duplicates
     const { data: existingMemories } = await supabaseAdmin
       .from('memories')

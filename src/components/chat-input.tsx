@@ -299,7 +299,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   return (
     <div>
-      <div className="mx-8 pb-3">
+      <div className="max-w-[740px] mx-auto px-8 pb-3">
         {/* Specialist chips — outside the input box, above it */}
         {specialists.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -331,7 +331,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        <div className="border border-border input-container">
+        <div className="border border-border input-container shadow-sm">
           {/* Attached files */}
           {files.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3.5 pt-3">
@@ -374,7 +374,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               {autocompleteSuggestion && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 py-3 pr-2 text-[0.875rem] leading-relaxed whitespace-pre-wrap break-words overflow-hidden"
+                  className="pointer-events-none absolute inset-0 py-3 pr-2 text-[0.9375rem] leading-relaxed whitespace-pre-wrap break-words overflow-hidden"
                   style={{ paddingLeft: 0 }}
                 >
                   {/* Invisible spacer matching the typed text */}
@@ -390,7 +390,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 onKeyDown={handleKeyDown}
                 placeholder="Message..."
                 rows={1}
-                className="w-full resize-none bg-transparent py-3 pr-2 text-[0.875rem] leading-relaxed outline-none placeholder:text-muted-foreground/40"
+                className="w-full resize-none bg-transparent py-3 pr-2 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/40"
                 style={{ minHeight: '46px', maxHeight: '200px' }}
               />
             </div>

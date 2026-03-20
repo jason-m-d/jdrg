@@ -120,7 +120,7 @@ export async function routeMessage(
         } as any),
       } as any),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Router timeout')), 3000)
+        setTimeout(() => reject(new Error('Router timeout')), 4000)
       ),
     ])
 

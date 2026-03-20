@@ -40,13 +40,14 @@ import { loadDataBlocks } from '@/lib/chat/context-loader'
 import { buildSpecialistPrompt } from '@/lib/specialists/prompt-builder'
 import type { SpecialistDefinition } from '@/lib/specialists/types'
 import { logChatMessage } from '@/lib/activity-log'
+import { getPrefetchedRouterResult } from '@/app/api/chat/prefetch/route'
 
 export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
 export async function POST(req: NextRequest) {
-  const { message, conversation_id, project_id, active_artifact_id, model } = await req.json()
+  const { message, conversation_id, project_id, active_artifact_id, model, prefetch_message } = await req.json()
   const selectedModel = model || 'anthropic/claude-sonnet-4.6:exacto'
 
   const encoder = new TextEncoder()
@@ -113,9 +114,11 @@ export async function POST(req: NextRequest) {
         const ALWAYS_ON_BLOCKS = new Set(['action_items_critical', 'watches', 'training', 'artifacts', 'projects'])
 
         const [routerResult, earlyData, allProjectsResult, projectResult] = await Promise.all([
-          // Router call
+          // Router call — skip if prefetch already ran for this exact message
           (async () => {
             try {
+              const cached = prefetch_message ? getPrefetchedRouterResult(prefetch_message) : null
+              if (cached) return cached
               return await routeMessage(message, recentMessages, [])
             } catch (routerErr: any) {
               console.error('[Chat] routeMessage threw unexpectedly, falling back:', routerErr?.message)

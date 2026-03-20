@@ -13,7 +13,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { routeMessage } from '@/lib/router'
 import type { RouterResult } from '@/lib/router'
 
-export const maxDuration = 10
+export const maxDuration = 15
 
 // ---------------------------------------------------------------------------
 // Prefetch result cache — in-process cache for deduplicating rapid prefetch
@@ -277,10 +277,22 @@ const EMPTY_RESULT: PrefetchResult = {
 }
 
 // ---------------------------------------------------------------------------
+// Cache lookup — called by the main chat POST to skip the router when
+// the user's final message matches a recent prefetch result.
+// ---------------------------------------------------------------------------
+export function getPrefetchedRouterResult(message: string): RouterResult | null {
+  evictStale()
+  const entry = prefetchCache.get(message.trim())
+  if (!entry) return null
+  console.log(`[Chat] prefetch cache hit — skipping router call`)
+  return entry.routerResult
+}
+
+// ---------------------------------------------------------------------------
 // POST handler
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const timeoutAt = Date.now() + 2000
+  const timeoutAt = Date.now() + 5000
 
   try {
     const { partial_message, recent_messages = [] } = await req.json()

@@ -13,6 +13,7 @@ export default function ConversationPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const scrollListenerAttachedRef = useRef(false)
   const [messages, setMessages] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [projectId, setProjectId] = useState<string>('none')
@@ -29,17 +30,26 @@ export default function ConversationPage() {
   const [showScrollButton, setShowScrollButton] = useState(false)
 
   // Track scroll position to show/hide "scroll to latest" button
-  useEffect(() => {
+  // Uses a callback ref so the listener attaches as soon as the div mounts
+  const setScrollContainer = useCallback((node: HTMLDivElement | null) => {
+    const prev = scrollContainerRef.current
+    if (prev && scrollListenerAttachedRef.current) {
+      prev.removeEventListener('scroll', handleScrollForButton)
+      scrollListenerAttachedRef.current = false
+    }
+    ;(scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node
+    if (node) {
+      node.addEventListener('scroll', handleScrollForButton, { passive: true })
+      scrollListenerAttachedRef.current = true
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleScrollForButton() {
     const container = scrollContainerRef.current
     if (!container) return
-    function handleScroll() {
-      if (!container) return
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      setShowScrollButton(distanceFromBottom > 200)
-    }
-    container.addEventListener('scroll', handleScroll, { passive: true })
-    return () => container.removeEventListener('scroll', handleScroll)
-  }, [])
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    setShowScrollButton(distanceFromBottom > 200)
+  }
 
   const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current
@@ -72,7 +82,7 @@ export default function ConversationPage() {
       })
   }, [id])
 
-  async function handleSubmit(userMessage: string, model?: string, _prefetchCacheKey?: string) {
+  async function handleSubmit(userMessage: string, model?: string, prefetchCacheKey?: string) {
     if (!userMessage.trim() || loading) return
 
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
@@ -90,6 +100,7 @@ export default function ConversationPage() {
           project_id: projectId === 'none' ? null : projectId,
           active_artifact_id: activeArtifactId,
           model,
+          prefetch_message: prefetchCacheKey ? userMessage : undefined,
         }),
       })
 
@@ -288,7 +299,7 @@ export default function ConversationPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-hidden relative">
-          <div ref={scrollContainerRef} className="h-full overflow-auto flex flex-col">
+          <div ref={setScrollContainer} className="h-full overflow-auto flex flex-col">
             <ChatMessages
               messages={messages}
               streamingContent={streamingContent}

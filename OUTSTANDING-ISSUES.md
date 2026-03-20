@@ -14,6 +14,23 @@ _No active issues._
 
 ## Resolved
 
+### [MEDIUM] Prefetch router always timing out — chips never showed for most queries
+- **Found:** 2026-03-20
+- **Resolved:** 2026-03-20
+- **What happened:** The prefetch endpoint had a 2-second hard timeout but the AI router regularly takes 2–3 seconds. Almost every prefetch call silently returned empty results. Chips only showed for messages where the router happened to respond in < 2s (Calendar, Web Search). Sales, Email, Tasks, Contacts, and multi-domain queries all returned no chips.
+- **What was done:** Bumped prefetch timeout from 2s → 5s in `src/app/api/chat/prefetch/route.ts`. Bumped router internal timeout from 3s → 4s in `src/lib/router.ts`. Full QA pass confirmed 10/10 test cases passing.
+
+### [LOW] Prefetch cache result never reused by chat POST
+- **Found:** 2026-03-20
+- **Resolved:** 2026-03-20
+- **What happened:** The prefetch endpoint cached router results server-side, and the frontend passed a `prefetchCacheKey` on submit — but the chat route ignored it and always re-ran the router. Zero latency benefit from the prefetch.
+- **What was done:** Exported `getPrefetchedRouterResult()` from the prefetch route. Chat route now accepts `prefetch_message` in the request body and skips the router call on a cache hit. Both page handlers (`chat/[id]/page.tsx`, `dashboard/page.tsx`) now forward the message for cache lookup.
+
+### [LOW] Memory extraction had no debounce — could create duplicate memories on rapid messages
+- **Found:** 2026-03-20
+- **Resolved:** 2026-03-20
+- **What was done:** Added an in-process module-level `lastExtractionAt` timestamp to `src/lib/chat/memory-extraction.ts`. Extraction is skipped if it ran within the last 5 seconds.
+
 _Move items here when fixed. Include date and what was done._
 
 ### [MEDIUM] Duplicate ANTHROPIC_API_KEY on Vercel

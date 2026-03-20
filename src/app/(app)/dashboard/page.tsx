@@ -211,7 +211,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleSubmit(userMessage: string, _model?: string, _prefetchCacheKey?: string) {
+  async function handleSubmit(userMessage: string, _model?: string, prefetchCacheKey?: string) {
     if (!userMessage.trim() || loading) return
 
     setMessages(prev => [...prev, { role: 'user', content: userMessage }])
@@ -228,6 +228,7 @@ export default function HomePage() {
           conversation_id: conversationId,
           project_id: null,
           active_artifact_id: activeArtifactId,
+          prefetch_message: prefetchCacheKey ? userMessage : undefined,
         }),
       })
 

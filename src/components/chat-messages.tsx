@@ -109,7 +109,7 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
 
   return (
     <div className="px-4 pt-6 pb-2">
-      <div className="mx-8">
+      <div className="max-w-[740px] mx-auto px-8">
         {greetingData && (
           <GreetingCard
             greeting={greetingData.text}
@@ -308,7 +308,7 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
   }
 
   return (
-    <div className={cn("py-5 group", isLatest && "animate-in-up", isUser && "flex flex-col items-end")}>
+    <div className={cn("py-7 group", isLatest && "animate-in-up", isUser && "flex flex-col items-end")}>
       {/* Role + timestamp */}
       <div className={cn("flex items-baseline gap-2 mb-1.5", isUser && "flex-row-reverse")}>
         <span className="text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium">
@@ -325,7 +325,7 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
       {/* Content */}
       <div className={cn(
         "text-[0.9375rem] leading-[1.7]",
-        isUser ? "text-foreground bg-muted/50 px-4 py-2.5 rounded-2xl rounded-tr-sm max-w-[85%]" : "text-foreground/95 tracking-[0.01em] font-light",
+        isUser ? "text-foreground bg-muted/50 px-4 py-2.5 max-w-[85%]" : "text-foreground/95 tracking-[0.01em] font-normal",
         typeConfig && `border-l-2 ${typeConfig.borderColor} pl-4 ${typeConfig.bgColor} py-3 pr-4 rounded-r-lg`,
       )}>
         <FormattedContent content={message.content} />
@@ -363,7 +363,7 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
           {onCopy && (
             <button
               onClick={() => {
-                onCopy()
+                navigator.clipboard.writeText(message.content || '').catch(() => {})
                 setCopied(true)
                 setTimeout(() => setCopied(false), 1500)
               }}
@@ -667,7 +667,7 @@ export function FormattedContent({ content }: { content: string }) {
     } else if (line.startsWith('- ') || line.startsWith('* ')) {
       elements.push(
         <div key={i} className="flex gap-2 pl-1">
-          <span className="text-muted-foreground/40 select-none">&ndash;</span>
+          <span className="text-muted-foreground/40 select-none">·</span>
           <span>{formatInline(line.slice(2))}</span>
         </div>
       )
@@ -683,6 +683,8 @@ export function FormattedContent({ content }: { content: string }) {
       }
     } else if (line.trim().startsWith('|')) {
       tableLines.push(line)
+    } else if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
+      elements.push(<hr key={i} className="border-border/30 my-2" />)
     } else if (line.trim() === '') {
       elements.push(<div key={i} className="h-3" />)
     } else {
