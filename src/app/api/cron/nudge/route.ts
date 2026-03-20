@@ -15,8 +15,19 @@ export async function POST(req: NextRequest) {
 
   const convId = await getMainConversation()
 
-  // Anti-spam: TEMPORARILY DISABLED FOR TESTING
-  // if a nudge was sent in the last 2 hours, skip
+  // Anti-spam: skip if a nudge was sent in the last 2 hours
+  const { data: recentNudges } = await supabaseAdmin
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', convId)
+    .eq('role', 'assistant')
+    .like('content', '%Nudge%')
+    .gte('created_at', new Date(Date.now() - 2 * 3600000).toISOString())
+    .limit(1)
+
+  if (recentNudges && recentNudges.length > 0) {
+    return NextResponse.json({ message: 'Skipped — nudge sent recently', nudged: false })
+  }
 
   const now = new Date()
   const tomorrow = new Date(now.getTime() + 24 * 3600000).toISOString().split('T')[0]
