@@ -44,13 +44,13 @@ function summarizeEvent(event: CrosbyEvent): string {
   const p = event.payload
   switch (event.event_type) {
     case 'chat_message':
-      return `${p.specialists?.join(', ') || 'core'} specialists, ${p.tools_called?.length || 0} tools, ${p.latency_ms}ms${p.from_fallback ? ' (fallback router)' : ''}${p.is_error ? ' — ERROR' : ''}`
+      return `${p.specialists?.join(', ') || 'core'} specialists, ${p.tools_called?.length ? `${p.tools_called.length} tools` : 'no tools called'}, ${p.latency_ms}ms${p.from_fallback ? ' (fallback router)' : ''}${p.is_error ? ' — ERROR' : ''}`
     case 'cron_job':
       return `${p.job_name}: ${p.success ? 'OK' : 'FAILED'} in ${p.duration_ms}ms — ${p.summary}`
     case 'background_job':
       return `${p.job_type}: ${p.success ? 'OK' : 'FAILED'} in ${p.duration_ms}ms (trigger: ${p.trigger_source})${p.error ? ` — ${p.error}` : ''}`
     case 'router_decision':
-      return `"${(p.message_preview || '').slice(0, 60)}" → [${p.data_needed?.join(', ') || 'none'}]${p.from_fallback ? ' (fallback)' : ''} ${p.latency_ms}ms`
+      return `"${(p.message_preview || '').slice(0, 60)}" → [${p.data_needed?.join(', ') || 'no data loaded'}]${p.from_fallback ? ' (fallback)' : ''} ${p.latency_ms}ms`
     case 'error':
       return `${p.route}: ${p.error_type} — ${p.error_message}`
     case 'nudge_decision':

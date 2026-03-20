@@ -51,6 +51,7 @@ function formatTime(dateStr?: string) {
 export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled, onSendMessage, scrollContainerRef }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
+  const programmaticScrollRef = useRef(false)
   const prevLoadingRef = useRef(loading)
   const initialLoadDoneRef = useRef(false)
 
@@ -62,13 +63,14 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
     prevLoadingRef.current = loading
   }, [loading])
 
-  // Detect manual scroll: if user scrolls up while streaming, disable auto-scroll
+  // Detect manual scroll: only disable auto-scroll if the user caused it
   useEffect(() => {
     const container = scrollContainerRef?.current
     if (!container) return
 
     function handleScroll() {
       if (!container) return
+      if (programmaticScrollRef.current) return
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
       if (distanceFromBottom > 80) {
         userScrolledRef.current = true
@@ -81,9 +83,12 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
 
   useEffect(() => {
     if (!userScrolledRef.current) {
+      programmaticScrollRef.current = true
       // First load: jump instantly to avoid smooth-scroll race with DOM rendering
       const behavior = initialLoadDoneRef.current ? 'smooth' : 'instant'
       bottomRef.current?.scrollIntoView({ behavior })
+      // Clear the flag after scroll events have had a chance to fire
+      setTimeout(() => { programmaticScrollRef.current = false }, 100)
     }
     if (messages.length > 0) {
       initialLoadDoneRef.current = true
