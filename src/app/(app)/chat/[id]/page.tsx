@@ -28,6 +28,7 @@ export default function ConversationPage() {
   const [showArtifactPanel, setShowArtifactPanel] = useState(false)
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [pendingArtifactDelete, setPendingArtifactDelete] = useState<{ artifact_id: string; artifact_name: string } | null>(null)
 
   // Track scroll position to show/hide "scroll to latest" button
   // Uses a callback ref so the listener attaches as soon as the div mounts
@@ -175,6 +176,9 @@ export default function ConversationPage() {
                   setShowArtifactPanel(true)
                 }
               }
+              if (data.delete_artifact_confirm) {
+                setPendingArtifactDelete(data.delete_artifact_confirm)
+              }
               if (data.open_artifact) {
                 const art = data.open_artifact.artifact as Artifact
                 if (art?.id) {
@@ -244,6 +248,24 @@ export default function ConversationPage() {
 
   function handleArtifactUpdated(updated: Artifact) {
     setArtifacts(prev => prev.map(a => a.id === updated.id ? updated : a))
+  }
+
+  async function handleConfirmDelete() {
+    if (!pendingArtifactDelete) return
+    const { artifact_id } = pendingArtifactDelete
+    setPendingArtifactDelete(null)
+    await fetch('/api/artifacts/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artifact_id }),
+    })
+    setArtifacts(prev => prev.filter(a => a.id !== artifact_id))
+    handleCloseArtifact(artifact_id)
+  }
+
+  function handleCancelDelete() {
+    setPendingArtifactDelete(null)
+    handleSubmit('Cancelled — do not delete the artifact.')
   }
 
   const openArtifacts = artifacts.filter(a => openArtifactIds.includes(a.id))
@@ -349,7 +371,15 @@ export default function ConversationPage() {
           )}
         </div>
 
-        <ChatInput ref={chatInputRef} onSubmit={handleSubmit} loading={loading} storageKey={id} />
+        <ChatInput
+          ref={chatInputRef}
+          onSubmit={handleSubmit}
+          loading={loading}
+          storageKey={id}
+          pendingDelete={pendingArtifactDelete}
+          onConfirmDelete={handleConfirmDelete}
+          onCancelDelete={handleCancelDelete}
+        />
       </div>
 
       {showArtifactPanel && (

@@ -62,13 +62,16 @@ interface ChatInputProps {
   onSubmit: (message: string, model: string, prefetchCacheKey?: string) => void
   loading: boolean
   storageKey?: string
+  pendingDelete?: { artifact_id: string; artifact_name: string } | null
+  onConfirmDelete?: () => void
+  onCancelDelete?: () => void
 }
 
 export interface ChatInputHandle {
   setInputText: (text: string) => void
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSubmit, loading, storageKey }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({ onSubmit, loading, storageKey, pendingDelete, onConfirmDelete, onCancelDelete }, ref) {
   const lsKey = storageKey ? `chat-draft:${storageKey}` : null
   const [input, setInput] = useState(() => {
     if (typeof window === 'undefined' || !lsKey) return ''
@@ -300,6 +303,29 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   return (
     <div>
       <div className="max-w-[740px] mx-auto px-8 pb-3">
+        {/* Delete confirmation banner */}
+        {pendingDelete && (
+          <div className="flex items-center justify-between px-3 py-2 mb-2 border border-border/60 bg-muted/20 text-[0.8125rem]">
+            <span className="text-muted-foreground">
+              Delete <span className="text-foreground font-medium">&ldquo;{pendingDelete.artifact_name}&rdquo;</span>?
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onCancelDelete}
+                className="px-2.5 py-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirmDelete}
+                className="px-2.5 py-1 text-[0.75rem] text-red-500 hover:text-red-400 border border-red-500/30 hover:border-red-400/50 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Specialist chips — outside the input box, above it */}
         {specialists.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">

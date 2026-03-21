@@ -4,10 +4,10 @@ export const artifactsSpecialist: SpecialistDefinition = {
   id: 'artifacts',
   name: 'Artifacts',
   description: 'Handles artifact creation, updates, and project context',
-  tools: ['manage_artifact', 'open_artifact', 'manage_project_context'],
+  tools: ['manage_artifact', 'delete_artifact', 'open_artifact', 'manage_project_context'],
   dataNeeded: ['artifacts'],
   triggerRules: {
-    trigger_tools: ['manage_artifact', 'open_artifact', 'manage_project_context'],
+    trigger_tools: ['manage_artifact', 'delete_artifact', 'open_artifact', 'manage_project_context'],
   },
   source: 'built_in',
   systemPromptSection: `{{artifacts_section}}

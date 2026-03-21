@@ -350,7 +350,8 @@ RULES for managing projects (create/update/archive):
 - When updating an artifact, always send the FULL content - never send diffs or partial updates
 - Create a NEW artifact when the topic is distinct. Update an EXISTING one when refining the same topic.
 - For type "checklist", use \`- [ ] Item\` syntax for all items so they render as interactive checkboxes.
-- Keep artifact names concise and descriptive`
+- Keep artifact names concise and descriptive
+- To delete an artifact, call delete_artifact with the artifact_id and artifact_name. This shows a confirmation prompt to the user — do NOT assume the delete happened until you receive confirmation. Use this when asked to remove, archive, or clean up an artifact.`
 
     if (!ctx.artifacts || ctx.artifacts.length === 0) return artifactRules
 

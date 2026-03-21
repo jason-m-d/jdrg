@@ -447,6 +447,14 @@ export async function POST(req: NextRequest) {
                         artifact: { operation: toolInput.operation, artifact: toolResult.artifact },
                       })}\n\n`))
                     }
+                  } else if (currentToolUse.name === 'delete_artifact') {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                      delete_artifact_confirm: {
+                        artifact_id: toolInput.artifact_id,
+                        artifact_name: toolInput.artifact_name,
+                      },
+                    })}\n\n`))
+                    toolResult = { status: 'pending_confirmation', message: 'Confirmation shown to user. Wait for their response.' }
                   } else if (currentToolUse.name === 'open_artifact') {
                     const { data: art } = await supabaseAdmin
                       .from('artifacts')

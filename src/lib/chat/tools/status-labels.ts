@@ -1,5 +1,6 @@
 export const toolStatusLabels: Record<string, string> = {
   manage_artifact: 'Working on artifact',
+  delete_artifact: 'Preparing to delete artifact',
   open_artifact: 'Opening artifact',
   manage_project_context: 'Updating project context',
   search_gmail: 'Searching your email',

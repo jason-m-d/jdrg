@@ -769,6 +769,19 @@ export const GET_ACTIVITY_LOG_TOOL: Anthropic.Messages.Tool = {
   },
 }
 
+export const DELETE_ARTIFACT_TOOL: Anthropic.Messages.Tool = {
+  name: 'delete_artifact',
+  description: 'Delete an artifact. This will surface a confirmation prompt to the user before deleting — do NOT assume the delete happened until the user confirms.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      artifact_id: { type: 'string', description: 'The artifact ID to delete' },
+      artifact_name: { type: 'string', description: 'The artifact name (used in the confirmation prompt)' },
+    },
+    required: ['artifact_id', 'artifact_name'],
+  },
+}
+
 export const OPEN_ARTIFACT_TOOL: Anthropic.Messages.Tool = {
   name: 'open_artifact',
   description: 'Open an existing artifact in the side panel. Use when Jason asks to see, open, or show a specific artifact by name.',
@@ -787,6 +800,7 @@ export const OPEN_ARTIFACT_TOOL: Anthropic.Messages.Tool = {
 export const ALL_TOOLS_MAP: Record<string, Anthropic.Messages.Tool> = {
   manage_action_items: ACTION_ITEM_TOOL,
   manage_artifact: ARTIFACT_TOOL,
+  delete_artifact: DELETE_ARTIFACT_TOOL,
   open_artifact: OPEN_ARTIFACT_TOOL,
   manage_project: MANAGE_PROJECT_TOOL,
   manage_project_context: MANAGE_PROJECT_CONTEXT_TOOL,
