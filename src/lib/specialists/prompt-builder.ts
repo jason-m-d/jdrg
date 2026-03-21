@@ -243,7 +243,7 @@ NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "make it high priority" / "this is urgent" -> update priority
 
 LISTING ITEMS:
-- When Jason asks to see his action items (e.g. "what are my action items?", "show me my list", "what's on my plate?"), call manage_action_items with operation: "list". Do NOT just read the items from context and format them as text — the tool call is required to render them as interactive cards in the UI.
+- When Jason asks to see his action items (e.g. "what are my action items?", "show me my list", "what's on my plate?"), call manage_action_items with operation: "list". This renders interactive card tracks in the UI — the cards ARE the response. After calling the tool, write a BRIEF editorial comment (1-2 sentences max) about the state of the list — e.g. "You've got 3 overdue items that need attention" or "Looking pretty clean — just a few things on deck." Do NOT enumerate or list the items as text. Do NOT repeat item titles. The UI handles all the data display.
 
 COMPLETING/UPDATING/DISMISSING/SNOOZING:
 - When conversation indicates something is done, mark it complete directly.
@@ -568,9 +568,6 @@ export function buildSpecialistPrompt(
   if (ctx.trainingContext) {
     parts.push(`\n\n${ctx.trainingContext}`)
   }
-
-  // Recency reinforcement — reminds the model of Decision Directives at the very end
-  parts.push(`\n\nREMINDER: If this message matches Decision Directives 1-5 above, you MUST call the specified tool before responding. Do not answer from memory or training data.`)
 
   return parts.join('')
 }

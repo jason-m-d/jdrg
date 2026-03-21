@@ -48,32 +48,6 @@ export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
 
-function buildRuntimeDirectives(toolsNeeded: string[]): string {
-  const directives: string[] = []
-
-  if (toolsNeeded.includes('search_web')) {
-    directives.push('This message requires current real-world information. You MUST call web_search before answering. Do not answer from memory or training data.')
-  }
-  if (toolsNeeded.includes('manage_artifact')) {
-    directives.push('This message requires an artifact. You MUST call manage_artifact, not write content as text.')
-  }
-  if (toolsNeeded.includes('search_conversation_history')) {
-    directives.push('This message references past conversations. You MUST call search_conversation_history before answering.')
-  }
-  if (toolsNeeded.includes('query_sales')) {
-    directives.push('This message is about sales/performance data. You MUST call query_sales, not search Gmail.')
-  }
-  if (toolsNeeded.includes('check_calendar') || toolsNeeded.includes('find_availability')) {
-    directives.push('This message is about schedule/availability. You MUST call check_calendar or find_availability.')
-  }
-  if (toolsNeeded.includes('search_gmail')) {
-    directives.push('This message requires email lookup. You MUST call search_gmail.')
-  }
-
-  return directives.length > 0
-    ? '\n\nROUTER DIRECTIVES:\n' + directives.map(d => `- ${d}`).join('\n')
-    : ''
-}
 
 export async function POST(req: NextRequest) {
   const { message, conversation_id, project_id, active_artifact_id, model, prefetch_message } = await req.json()
@@ -289,8 +263,8 @@ export async function POST(req: NextRequest) {
           trainingContext: loadedData.training,
         })
 
-        // Inject runtime directives based on what the router flagged
-        systemPrompt += buildRuntimeDirectives(routerResult?.tools_needed || [])
+        // Runtime directives removed — Decision Directives in the system prompt handle tool-forcing.
+        // Double-prompting was causing the model to over-narrate and repeat itself.
 
         // Use all unsummarized history — the summarization cron keeps this window manageable
         const trimmedHistory = history || []
@@ -523,50 +497,9 @@ export async function POST(req: NextRequest) {
                   } else if (currentToolUse.name === 'search_gmail') {
                     try {
                       const emails = await searchEmails(toolInput.query, toolInput.max_results || 10)
-
-                      const { data: outboundThreads } = await supabaseAdmin
-                        .from('email_threads')
-                        .select('gmail_thread_id, last_sender_email, subject, last_message_date')
-                        .eq('direction', 'outbound')
-                        .eq('response_detected', false)
-                        .gte('last_message_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-
-                      if (outboundThreads && outboundThreads.length > 0) {
-                        const stopWords = new Set(['re:', 'fwd:', 'fw:', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'between', 'through', 'after', 'before', 'above', 'below', 'and', 'but', 'or', 'not', 'no', 'so', 'if', 'then', 'than', 'that', 'this', 'it', 'its', 'my', 'your', 'his', 'her', 'our', 'their', 'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him', 'us', 'them', 'up', 'out', 'just', 'also', 'very', 'all', 'any', 'each', 'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'same', 'new', 'old', 'hi', 'hello', 'hey', 'thanks', 'thank', 'please', 'regards'])
-                        const extractKeywords = (text: string): Set<string> => new Set(
-                          text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
-                            .filter(w => w.length > 2 && !stopWords.has(w))
-                        )
-                        const extractDomain = (email: string): string => {
-                          const match = email.match(/@([^>]+)/)
-                          return match ? match[1].toLowerCase() : ''
-                        }
-                        const outboundData = outboundThreads.map(t => ({
-                          ...t,
-                          recipientDomain: extractDomain(t.last_sender_email || ''),
-                          keywords: extractKeywords(t.subject || ''),
-                        }))
-                        for (const email of emails) {
-                          const senderDomain = extractDomain(email.from || '')
-                          const emailKeywords = extractKeywords(`${email.subject || ''} ${email.snippet || ''}`)
-                          for (const thread of outboundData) {
-                            let matched = false
-                            if (email.threadId && email.threadId === thread.gmail_thread_id) matched = true
-                            if (!matched && senderDomain && thread.recipientDomain && senderDomain === thread.recipientDomain) matched = true
-                            if (!matched && thread.keywords.size > 0) {
-                              let overlap = 0
-                              for (const kw of thread.keywords) { if (emailKeywords.has(kw)) overlap++ }
-                              if (overlap >= 2) matched = true
-                            }
-                            if (matched) {
-                              const sentDate = new Date(thread.last_message_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
-                              email.snippet += `\n[CONTEXT: This appears to be related to your outbound email about "${thread.subject}" sent on ${sentDate}. You were waiting for a reply on this.]`
-                              break
-                            }
-                          }
-                        }
-                      }
-
+                      // Outbound thread correlation removed — awaiting replies data is already
+                      // in the system prompt via the emails_awaiting data block. The model can
+                      // cross-reference search results with its loaded context.
                       toolResult = { status: 'ok', result_count: emails.length, emails }
                     } catch (e: any) {
                       toolResult = { status: 'error', message: e.message }
