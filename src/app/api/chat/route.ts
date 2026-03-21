@@ -275,20 +275,6 @@ export async function POST(req: NextRequest) {
         // Inject runtime directives based on what the router flagged
         systemPrompt += buildRuntimeDirectives(routerResult?.tools_needed || [])
 
-        // Pre-execute web search if the router flagged it — gives the model results in context
-        if (routerResult?.tools_needed?.includes('search_web') && (routerResult.rag_query || message)) {
-          try {
-            const searchQuery = routerResult.rag_query || message
-            console.log(`[Chat] pre-executing web search: "${searchQuery}"`)
-            const results = await executeWebSearch(searchQuery)
-            if (results) {
-              systemPrompt += `\n\n--- Web Search Results (pre-fetched) ---\nQuery: "${searchQuery}"\n${results}\n---\nUse these results to answer. Only call search_web again if you need a DIFFERENT query.`
-            }
-          } catch (e) {
-            console.error('[Chat] pre-search failed, model will need to call search_web:', e)
-          }
-        }
-
         // Use all unsummarized history — the summarization cron keeps this window manageable
         const trimmedHistory = history || []
 
