@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
         })
 
         console.log('[Chat] building system prompt')
-        let systemPrompt = buildSpecialistPrompt(activeSpecialists, loadedData, {
+        const systemPrompt = buildSpecialistPrompt(activeSpecialists, loadedData, {
           previousSessionSummary: latestSummary?.summary_text || null,
           currentTime: pacificTime,
           relevantProjects: routerResult.relevant_projects.length > 0 ? routerResult.relevant_projects : undefined,
@@ -262,9 +262,6 @@ export async function POST(req: NextRequest) {
           activeArtifactId: effectiveActiveArtifactId,
           trainingContext: loadedData.training,
         })
-
-        // Runtime directives removed — Decision Directives in the system prompt handle tool-forcing.
-        // Double-prompting was causing the model to over-narrate and repeat itself.
 
         // Use all unsummarized history — the summarization cron keeps this window manageable
         const trimmedHistory = history || []
