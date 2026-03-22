@@ -27,6 +27,20 @@ Planned features that are ready to build but parked for later.
 - **Fix applied:** Added explicit "CRITICAL: Write the research content directly. Do NOT say 'I'll run...'" instruction to `src/app/api/background-job/route.ts` executeJob() system prompt.
 - **Status:** Fixed — monitor next few research jobs to confirm.
 
+### [MEDIUM] embed-messages cron times out at 60s under load
+- **Found:** 2026-03-22
+- **Severity:** Medium — when 50 messages need embedding and each has multiple chunks, sequential `generateEmbedding()` calls can exceed the 60s Vercel function limit. One instance confirmed in runtime logs at 06:00 UTC.
+- **Root cause:** `src/app/api/cron/embed-messages/route.ts` has `maxDuration = 60` but processes messages sequentially. With 50 long messages (3+ chunks each) and ~500ms per embedding call, this hits 60s easily.
+- **Suggested fix options:** (1) Raise `maxDuration` to 120 or 300 (Vercel Pro supports 300s). (2) Reduce `BATCH_SIZE` from 50 to 20. (3) Batch embedding requests in parallel instead of sequential.
+- **Risk:** Embeddings that timeout aren't marked `embedded_at`, so they retry on the next run. Not catastrophic — just slower to catch up.
+
+### [LOW] run-background-jobs cron 504 when heavy research job is in-flight
+- **Found:** 2026-03-22
+- **Severity:** Low — one occurrence. The cron dispatches background-job fetches with Promise.all but the 504 suggests the cron function itself hit a wall-clock limit.
+- **Root cause:** The `run-background-jobs` cron fires dispatch fetches but doesn't fully fire-and-forget (Promise.all awaits the fetch calls starting, not necessarily completing). Under load with long-running jobs, the function may be keeping open connections.
+- **Note:** Background jobs themselves have `maxDuration = 300` — only the dispatcher cron is at risk. Low-priority since jobs still complete; the dispatcher just returns 504 occasionally.
+- **Risk:** Very low — jobs still run and complete correctly.
+
 ### [LOW] Deep research job may return "No results found" without alerting
 - **Found:** 2026-03-22
 - **Severity:** Low — one occurrence. Perplexity returned a non-text response block; the fallback string "No results found." was stored as the result and a completion message was sent pointing to an empty artifact.
