@@ -12,6 +12,8 @@ import { QuickConfirmCard } from '@/components/quick-confirm-card'
 import { CronMessageGroup } from '@/components/cron-message-group'
 import { CronMessageCard, CronMessageType } from '@/components/cron-message-card'
 import { CardTrackGroup } from '@/components/card-track-group'
+import { CitationChips, SourcesButton, SourcesPanel } from '@/components/sources-panel'
+import { ResearchCard } from '@/components/research-card'
 
 interface SurfacedItem {
   id: string
@@ -23,6 +25,14 @@ interface SurfacedItem {
 interface GreetingData {
   text: string | null
   items: SurfacedItem[]
+}
+
+interface ActiveResearchJob {
+  jobId: string
+  topic: string
+  startedAt: number
+  done: boolean
+  artifactId?: string
 }
 
 interface ChatMessagesProps {
@@ -37,6 +47,8 @@ interface ChatMessagesProps {
   onGreetingItemHandled?: (itemId: string) => void
   onSendMessage?: (text: string) => void
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>
+  activeResearchJobs?: ActiveResearchJob[]
+  onOpenResearchArtifact?: (artifactId: string) => void
 }
 
 function formatDate() {
@@ -50,7 +62,7 @@ function formatTime(dateStr?: string) {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled, onSendMessage, scrollContainerRef }: ChatMessagesProps) {
+export function ChatMessages({ messages, streamingContent, loading, toolStatus, onArtifactClick, onCopyMessage, onEditMessage, greetingData, onGreetingItemHandled, onSendMessage, scrollContainerRef, activeResearchJobs, onOpenResearchArtifact }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
   const programmaticScrollRef = useRef(false)
@@ -180,6 +192,17 @@ export function ChatMessages({ messages, streamingContent, loading, toolStatus, 
         {streamingContent && (
           <MessageBlock message={{ role: 'assistant', content: streamingContent }} isLatest isStreaming={loading} toolStatus={toolStatus} />
         )}
+        {activeResearchJobs && activeResearchJobs.length > 0 && activeResearchJobs.map(job => (
+          <ResearchCard
+            key={job.jobId}
+            topic={job.topic}
+            startedAt={job.startedAt}
+            done={job.done}
+            onOpenReport={job.done && job.artifactId && onOpenResearchArtifact
+              ? () => onOpenResearchArtifact(job.artifactId!)
+              : undefined}
+          />
+        ))}
         {loading && !streamingContent && (
           <div className="py-6 animate-in-up">
             <div className="text-[0.625rem] uppercase tracking-[0.15em] text-muted-foreground/50 font-medium mb-1.5">
@@ -296,6 +319,7 @@ function ProactiveFeedback({ messageType }: { messageType: string }) {
 function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactClick, onCopy, onEdit, onSendMessage }: { message: any; isLatest?: boolean; isStreaming?: boolean; toolStatus?: string | null; onArtifactClick?: (artifactId: string) => void; onCopy?: () => void; onEdit?: () => void; onSendMessage?: (text: string) => void }) {
   const [copied, setCopied] = useState(false)
   const [showSources, setShowSources] = useState(false)
+  const [showCitationsPanel, setShowCitationsPanel] = useState(false)
   const isUser = message.role === 'user'
   const time = formatTime(message.created_at)
   const messageType = !isUser ? resolveMessageType(message) : null
@@ -547,6 +571,21 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
           {message.quickConfirmEvents.map((evt: any, i: number) => (
             <QuickConfirmCard key={i} event={evt} onSendMessage={onSendMessage} />
           ))}
+        </div>
+      )}
+
+      {/* Citations (web search) */}
+      {!isUser && message.citations && message.citations.length > 0 && (
+        <div className="mt-2">
+          <CitationChips citations={message.citations} onShowAll={() => setShowCitationsPanel(true)} />
+          <div className="mt-2">
+            <SourcesButton citations={message.citations} onClick={() => setShowCitationsPanel(true)} />
+          </div>
+          <SourcesPanel
+            open={showCitationsPanel}
+            onClose={() => setShowCitationsPanel(false)}
+            citations={message.citations}
+          />
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { openrouterClient } from '@/lib/openrouter'
 import { logCronJob } from '@/lib/activity-log'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export const maxDuration = 60
 
@@ -49,6 +50,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   // Load known contacts for context
   const { data: contacts } = await supabaseAdmin
@@ -159,8 +162,19 @@ Return a classification for every message ID provided.`
 
   void logCronJob({ job_name: 'text-scan', success: true, duration_ms: Date.now() - cronStart, summary: `Processed ${totalProcessed} messages, flagged ${totalFlagged} as business` })
   return NextResponse.json({ processed: totalProcessed, flagged: totalFlagged })
+  } catch (fatalErr: any) {
+    console.error('[text-scan] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'text-scan', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('text-scan', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }
 
+// Support GET for Vercel Cron
 export async function GET(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   return POST(req)
 }

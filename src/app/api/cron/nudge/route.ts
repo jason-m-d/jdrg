@@ -6,6 +6,7 @@ import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount,
 import { openrouterClient } from '@/lib/openrouter'
 import { logCronJob, logNudgeDecision } from '@/lib/activity-log'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export const maxDuration = 30
 
@@ -16,6 +17,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   const convId = await getMainConversation()
 
@@ -249,6 +252,12 @@ Today is ${now.toISOString().split('T')[0]}.${dedupNote}` },
     nudged: true,
     candidate_count: candidates.length,
   })
+  } catch (fatalErr: any) {
+    console.error('[nudge] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'nudge', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('nudge', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }
 
 // Also support GET for Vercel Cron

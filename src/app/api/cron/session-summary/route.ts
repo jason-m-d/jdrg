@@ -13,8 +13,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { extractFromRecentMessages } from '@/lib/chat/extraction'
 import { logCronJob } from '@/lib/activity-log'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export const maxDuration = 60
+
+// Support GET for Vercel Cron
+export async function GET(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return POST(req)
+}
 
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
@@ -23,6 +33,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   // Find conversations with recent activity (last 30 minutes) that may need extraction
   const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
@@ -52,4 +64,10 @@ export async function POST(req: NextRequest) {
 
   void logCronJob({ job_name: 'session-summary', success: true, duration_ms: Date.now() - cronStart, summary: `Ran extraction on ${processed} conversation(s)` })
   return NextResponse.json({ message: `Ran extraction on ${processed} conversation(s)`, processed })
+  } catch (fatalErr: any) {
+    console.error('[session-summary] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'session-summary', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('session-summary', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }

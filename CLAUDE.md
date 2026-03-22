@@ -119,6 +119,35 @@ npx vercel --prod
 - Chunking + embedding (OpenAI text-embedding-3-small via OpenRouter) runs in the background after every upload.
 - Files attached via the paperclip are uploaded immediately on selection, before the user hits send.
 
+## Log Awareness
+Check logs when it's relevant — not reflexively, but with purpose. You're debugging a reported issue, implementing something that touches a live system, or something feels off. Here's what to look at and when:
+
+**Chat quality issues** (wrong tool called, bad response, missing context):
+- Query recent messages: `SELECT role, content, context_domains, citations, metadata FROM messages ORDER BY created_at DESC LIMIT 10`
+- Tool calls are embedded in the `content` field (Anthropic content block format) — parse them to see what was actually invoked
+- `context_domains` shows which specialists were active (e.g. `["email", "calendar"]`)
+
+**Background job problems** (cron didn't fire, proactive message missing, job stuck):
+- Check status: `SELECT job_type, status, trigger_source, error, created_at FROM background_jobs ORDER BY created_at DESC LIMIT 20`
+- Failed jobs have an `error` column — read it before guessing
+- A queue backup (many `queued` rows) means the `run-background-jobs` cron may not be firing
+
+**Cron health** (briefing didn't arrive, nudge didn't send):
+- Check Vercel runtime logs for the cron route — use the MCP tool first, fall back to CLI if truncated
+- Also check `background_jobs` — crons spawn jobs there and log errors on failure
+
+**Errors / connection issues**:
+- `crosby_events` table: `SELECT * FROM crosby_events WHERE event_type = 'error' ORDER BY created_at DESC LIMIT 10`
+- "I ran into a connection issue" in chat almost always means an OpenRouter error or duplicate tool name — check the Vercel runtime logs for the `/api/chat` route
+
+**Router / specialist decisions**:
+- `crosby_events` where `event_type = 'router_decision'` — shows what intent was classified, which specialists were activated, and whether it fell back to regex
+
+**Don't check logs for**:
+- UI-only changes (styling, copy, layout tweaks)
+- Schema migrations you just ran successfully
+- Anything where the build/lint/tsc output already tells the full story
+
 ## Outstanding Issues & Tech Debt
 A living issue tracker lives at `OUTSTANDING-ISSUES.md` in the project root. Use it.
 

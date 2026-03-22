@@ -6,7 +6,7 @@
 
 import { supabaseAdmin } from './supabase'
 
-export type JobType = 'research' | 'analysis' | 'briefing' | 'sop' | 'overnight_build'
+export type JobType = 'deep_research' | 'research' | 'analysis' | 'briefing' | 'sop' | 'overnight_build'
 export type TriggerSource = 'user' | 'nudge_cron' | 'email_scan' | 'overnight_build' | 'sop_detection'
 
 export interface BackgroundJob {
@@ -52,19 +52,9 @@ export async function spawnBackgroundJob(
     throw new Error(`Failed to create background job: ${error?.message}`)
   }
 
-  // Fire-and-forget: trigger the job endpoint
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3010'
-
-  fetch(`${baseUrl}/api/background-job`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-cron-secret': process.env.CRON_SECRET || '',
-    },
-    body: JSON.stringify({ job_id: job.id }),
-  }).catch(e => console.error('Background job trigger failed:', e))
+  // Job is queued in DB — the run-background-jobs cron picks it up within 60 seconds.
+  // (Fire-and-forget self-fetch was removed: Vercel kills the outbound fetch when the
+  // parent serverless function returns, so jobs never executed.)
 
   return job as BackgroundJob
 }

@@ -392,14 +392,14 @@ export const SEARCH_WEB_TOOL: Anthropic.Messages.Tool = {
 
 export const SPAWN_BACKGROUND_JOB_TOOL: Anthropic.Messages.Tool = {
   name: 'spawn_background_job',
-  description: `Spawn an async background job for tasks that would take a long time to research or analyze - deep dives into topics, document compilation, competitive analysis, multi-step research. Use this when Jason asks for something that would require significant digging. The job runs in the background and posts results back to chat when done. Respond immediately with a brief confirmation that you're on it.`,
+  description: `Spawn an async background job for research or analysis. Use this whenever Jason asks to research, investigate, deep dive, compile a briefing, or analyze something — whether it's about the outside world or his own data. The job runs in the background and posts results as an artifact in the side panel when done. Respond immediately with a brief confirmation that you're on it. Do NOT use this for quick factual questions — use the native web_search for those.`,
   input_schema: {
     type: 'object' as const,
     properties: {
       job_type: {
         type: 'string',
-        enum: ['research', 'analysis', 'briefing', 'sop', 'overnight_build'],
-        description: 'Type of job. research/analysis/sop use Claude Sonnet; briefing/overnight_build use Gemini Flash.',
+        enum: ['deep_research', 'research', 'analysis', 'briefing', 'sop', 'overnight_build'],
+        description: 'deep_research = external web research via Perplexity (industry trends, competitors, news, regulations). research/analysis/sop = internal data analysis via Claude Sonnet. briefing/overnight_build = simpler tasks via Gemini Flash.',
       },
       prompt: {
         type: 'string',

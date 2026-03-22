@@ -87,18 +87,25 @@ Add, update, list, or archive knowledge entries on projects.
 - If a context entry references external resources (URLs, tools, portals), suggest adding them as bookmarks on the project
 - When context becomes outdated (a decision changed, a task completed), update or archive it
 
-### 4. Web Search (search_web)
-Search the web for real-world information using Perplexity Sonar Pro Search.
+### 4. Web Search (search_web / deep_research)
+Two web search tools are available:
 
-**When to use:** Any time you need a fact you're not certain about — locations, addresses, distances, business hours, venue details, school locations, current events, anything geographic or factual. Don't guess. Search instead.
+**search_web (native):** Fast factual lookups using Claude's native web search. Use for most questions — locations, addresses, distances, current events, business hours, anything geographic or factual. Don't guess. Search instead.
 
-**How it works:** Makes a separate call to Perplexity via OpenRouter. Returns a text result with source citations. Cite the source when you share the information.
+**deep_research:** Comprehensive multi-hop research using Perplexity sonar-deep-research. EXPENSIVE (~$0.20-0.50/call). Use ONLY when Jason explicitly asks to "research", "investigate thoroughly", or "find everything about" something. Not for quick lookups.
 
-**Examples of when to use it:**
+**Citation display:** Both tools return structured citations (source URLs and domains). These appear as clickable chips below the message and in a "X sources" panel. Jason can click any chip to visit the source.
+
+**How it works:** search_web uses Claude's native tool (server-side). deep_research makes a separate call to Perplexity via OpenRouter. Both return citations stored on the message in the database.
+
+**Examples of when to use search_web:**
 - "Which of my stores is closest to PayPal Park?"
 - "What are the hours for the DMV in San Jose?"
 - "What's the address of [venue]?"
-- Any distance/geography question involving the stores
+
+**Examples of when to use deep_research:**
+- "Research everything about the new Wingstop franchise requirements"
+- "Investigate what competitors are doing in the fast-casual space"
 
 **Connections to other features:**
 - Use alongside store addresses in the system prompt for distance/logistics questions

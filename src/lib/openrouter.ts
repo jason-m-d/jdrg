@@ -10,8 +10,11 @@
  * Use the standard Anthropic client for Claude models.
  */
 import OpenAI from 'openai'
+import { wrapOpenRouterClient } from './langfuse'
 
-export const openrouterClient = new OpenAI({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
-})
+export const openrouterClient = wrapOpenRouterClient(
+  new OpenAI({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1',
+  })
+)

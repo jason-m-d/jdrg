@@ -4,6 +4,7 @@ import { spawnBackgroundJob } from '@/lib/background-jobs'
 import { getMainConversation } from '@/lib/proactive'
 import { parseJSON } from './memory-extraction'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { getLangfuse, flushLangfuse } from '@/lib/langfuse'
 
 export async function getOrCreateSession(convId: string): Promise<{ sessionId: string | null; previousSummary: string | null }> {
 
@@ -98,6 +99,12 @@ export async function getOrCreateSession(convId: string): Promise<{ sessionId: s
 }
 
 export async function summarizeSession(sessionId: string, convId: string) {
+  const lf = getLangfuse()
+  const lfTrace = lf.trace({
+    name: 'session_extraction',
+    metadata: { session_id: sessionId, conversation_id: convId },
+  })
+
   // Load all messages for this session
   const { data: messages } = await supabaseAdmin
     .from('messages')
@@ -105,7 +112,7 @@ export async function summarizeSession(sessionId: string, convId: string) {
     .eq('session_id', sessionId)
     .order('created_at', { ascending: true })
 
-  if (!messages || messages.length === 0) return
+  if (!messages || messages.length === 0) { lfTrace.update({ output: 'no messages' }); await flushLangfuse(); return }
 
   const transcript = messages
     .map(m => `${m.role === 'user' ? 'Jason' : 'Crosby'}: ${m.content.slice(0, 500)}`)
@@ -144,6 +151,9 @@ export async function summarizeSession(sessionId: string, convId: string) {
 
   // Extract watches from conversation (things Jason is waiting for or tracking)
   extractWatchesFromSession(convId, transcript).catch(e => console.error('Watch extraction failed:', e))
+
+  lfTrace.update({ output: `summarized ${messages.length} messages`, metadata: { session_id: sessionId, message_count: messages.length } })
+  await flushLangfuse()
 }
 
 async function extractNotepadEntriesFromSummary(summary: string) {

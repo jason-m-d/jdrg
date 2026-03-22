@@ -129,6 +129,7 @@ export default function ProjectPage() {
             const decoder = new TextDecoder()
             let fullText = ''
             let sources: any[] = []
+            const citations: any[] = []
             const actionItemEvents: any[] = []
             const addToProjectEvents: any[] = []
             const artifactEvents: any[] = []
@@ -170,6 +171,9 @@ export default function ProjectPage() {
                       setActiveArtifactId(art.id)
                       setShowArtifactPanel(true)
                     }
+                    if (data.citations) {
+                      citations.push(...data.citations)
+                    }
                     if (data.done) {
                       if (data.sources) sources = data.sources
                       if (data.conversation_id) {
@@ -191,6 +195,7 @@ export default function ProjectPage() {
               role: 'assistant',
               content: fullText,
               sources,
+              citations: citations.length > 0 ? citations : undefined,
               actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
               addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
               artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
@@ -291,6 +296,7 @@ export default function ProjectPage() {
       const decoder = new TextDecoder()
       let fullText = ''
       let sources: any[] = []
+      const citations: any[] = []
       const actionItemEvents: any[] = []
       const addToProjectEvents: any[] = []
       const artifactEvents: any[] = []
@@ -316,6 +322,9 @@ export default function ProjectPage() {
                 setToolStatus(null)
                 fullText += data.text
                 setStreamingContent(fullText)
+              }
+              if (data.citations) {
+                citations.push(...data.citations)
               }
               if (data.action_item) {
                 actionItemEvents.push(data.action_item)
@@ -364,6 +373,7 @@ export default function ProjectPage() {
         role: 'assistant',
         content: fullText,
         sources,
+        citations: citations.length > 0 ? citations : undefined,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,

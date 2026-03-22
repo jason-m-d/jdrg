@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import Anthropic from '@anthropic-ai/sdk'
 import { logCronJob } from '@/lib/activity-log'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export const maxDuration = 60
 
@@ -15,6 +16,15 @@ const CHARS_PER_TOKEN = 4
 // Keep the most recent 20 messages out of summarization so context stays fresh
 const KEEP_RECENT = 20
 
+// Support GET for Vercel Cron
+export async function GET(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return POST(req)
+}
+
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
   if (cronSecret !== process.env.CRON_SECRET && cronSecret !== 'manual' && cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -22,6 +32,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   // Load the main conversation(s) - non-project conversations
   const { data: conversations } = await supabaseAdmin
@@ -49,6 +61,12 @@ export async function POST(req: NextRequest) {
 
   void logCronJob({ job_name: 'summarize-conversation', success: true, duration_ms: Date.now() - cronStart, summary: `Ran summarization on ${summarized} conversation(s)` })
   return NextResponse.json({ message: `Ran summarization on ${summarized} conversation(s)`, summarized })
+  } catch (fatalErr: any) {
+    console.error('[summarize-conversation] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'summarize-conversation', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('summarize-conversation', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }
 
 async function maybeRunSummarization(convId: string): Promise<boolean> {

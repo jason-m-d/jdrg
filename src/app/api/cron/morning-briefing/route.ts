@@ -6,6 +6,7 @@ import { sendPushToAll } from '@/lib/push'
 import { openrouterClient } from '@/lib/openrouter'
 import { logCronJob } from '@/lib/activity-log'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export async function POST(req: NextRequest) {
   const cronSecret = req.headers.get('x-cron-secret') || req.headers.get('authorization')
@@ -156,6 +157,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Morning briefing failed:', error)
     void logCronJob({ job_name: 'morning-briefing', success: false, duration_ms: Date.now() - cronStart, summary: 'Failed to generate briefing' })
+    void reportCronFailure('morning-briefing', error as Error)
     return NextResponse.json({ error: 'Failed to generate briefing' }, { status: 500 })
   }
 }

@@ -29,6 +29,7 @@ export default function ConversationPage() {
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [pendingArtifactDelete, setPendingArtifactDelete] = useState<{ artifact_id: string; artifact_name: string } | null>(null)
+  const [activeResearchJobs, setActiveResearchJobs] = useState<{ jobId: string; topic: string; startedAt: number; done: boolean; artifactId?: string }[]>([])
 
   // Track scroll position to show/hide "scroll to latest" button
   // Uses a callback ref so the listener attaches as soon as the div mounts
@@ -105,12 +106,81 @@ export default function ConversationPage() {
         }
         setMessages(msgsWithTracks)
         setInitialLoading(false)
+
+        // Auto-open artifact panel if the most recent proactive message points to one
+        const lastArtifactMsg = [...msgsWithTracks].reverse().find(
+          (m: any) => m.metadata?.open_artifact_id
+        )
+        if (lastArtifactMsg) {
+          const artifactId = lastArtifactMsg.metadata.open_artifact_id as string
+          setActiveArtifactId(artifactId)
+          setOpenArtifactIds([artifactId])
+          setShowArtifactPanel(true)
+        }
       })
 
     supabase.from('artifacts').select('*').eq('conversation_id', id).order('updated_at', { ascending: false })
       .then(({ data }) => {
         if (data && data.length > 0) setArtifacts(data)
       })
+
+    // Hydrate active research jobs so the card persists across refreshes
+    supabase.from('background_jobs')
+      .select('id, metadata, created_at, status')
+      .eq('conversation_id', id)
+      .in('status', ['queued', 'running'])
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setActiveResearchJobs(data.map((j: any) => ({
+            jobId: j.id,
+            topic: j.metadata?.topic_summary || 'Research',
+            startedAt: new Date(j.created_at).getTime(),
+            done: false,
+          })))
+        }
+      })
+
+    // Realtime: surface proactive messages (e.g. background job results) without a page refresh
+    const channel = supabase
+      .channel(`proactive-${id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
+        async (payload: any) => {
+          const msg = payload.new
+          if (msg.role !== 'assistant') return
+          // Guard: skip if SSE already added this message (it will have an id match)
+          setMessages(prev => {
+            if (prev.some((m: any) => m.id === msg.id)) return prev
+            return [...prev, msg]
+          })
+          // If this message has an artifact to open, fetch it and open the panel
+          if (msg.metadata?.open_artifact_id) {
+            const artifactId = msg.metadata.open_artifact_id as string
+            // Mark matching research jobs as done
+            setActiveResearchJobs(prev =>
+              prev.map(j => j.done ? j : { ...j, done: true, artifactId })
+            )
+            const { data: art } = await supabase
+              .from('artifacts')
+              .select('*')
+              .eq('id', artifactId)
+              .single()
+            if (art) {
+              setArtifacts(prev => {
+                if (prev.some((a: any) => a.id === art.id)) return prev
+                return [art, ...prev]
+              })
+              setOpenArtifactIds(prev => prev.includes(art.id) ? prev : [...prev, art.id])
+              setActiveArtifactId(art.id)
+              setShowArtifactPanel(true)
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [id])
 
   async function handleSubmit(userMessage: string, model?: string, prefetchCacheKey?: string) {
@@ -141,6 +211,7 @@ export default function ConversationPage() {
       const decoder = new TextDecoder()
       let fullText = ''
       let sources: any[] = []
+      const citations: any[] = []
       const actionItemEvents: any[] = []
       const addToProjectEvents: any[] = []
       const artifactEvents: any[] = []
@@ -222,6 +293,17 @@ export default function ConversationPage() {
                   setShowArtifactPanel(true)
                 }
               }
+              if (data.citations) {
+                citations.push(...data.citations)
+              }
+              if (data.background_job?.status === 'spawned' && data.background_job?.job_id) {
+                setActiveResearchJobs(prev => [...prev, {
+                  jobId: data.background_job.job_id,
+                  topic: data.background_job.topic || 'Research',
+                  startedAt: Date.now(),
+                  done: false,
+                }])
+              }
               if (data.done) {
                 if (data.sources) sources = data.sources
               }
@@ -237,6 +319,7 @@ export default function ConversationPage() {
         role: 'assistant',
         content: fullText,
         sources,
+        citations: citations.length > 0 ? citations : undefined,
         actionItemEvents: actionItemEvents.length > 0 ? actionItemEvents : undefined,
         addToProjectEvents: addToProjectEvents.length > 0 ? addToProjectEvents : undefined,
         artifactEvents: artifactEvents.length > 0 ? artifactEvents : undefined,
@@ -389,6 +472,12 @@ export default function ConversationPage() {
                 } else {
                   handleSubmit(text)
                 }
+              }}
+              activeResearchJobs={activeResearchJobs}
+              onOpenResearchArtifact={(artifactId) => {
+                setActiveArtifactId(artifactId)
+                setOpenArtifactIds(prev => prev.includes(artifactId) ? prev : [...prev, artifactId])
+                setShowArtifactPanel(true)
               }}
             />
           </div>

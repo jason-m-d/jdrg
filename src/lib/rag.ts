@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase'
 import { generateQueryEmbedding } from './embeddings'
+import { rerankChunks } from './rerank'
 import type { Document, Memory } from './types'
 
 interface ChunkWithMeta {
@@ -13,16 +14,19 @@ interface ChunkWithMeta {
 export async function retrieveRelevantChunks(
   query: string,
   projectId?: string,
-  limit = 8,
-  threshold = 0.7,
+  limit = 5,
+  threshold = 0.6,
   precomputedEmbedding?: number[]
 ): Promise<ChunkWithMeta[]> {
   const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
 
+  // Retrieve wider pool for reranking (4x the final limit, min 20)
+  const retrievalCount = Math.max(20, limit * 4)
+
   const { data, error } = await supabaseAdmin.rpc('match_documents', {
     query_embedding: embedding,
     match_threshold: threshold,
-    match_count: limit,
+    match_count: retrievalCount,
   })
 
   if (error) {
@@ -47,7 +51,8 @@ export async function retrieveRelevantChunks(
     }
   }
 
-  return chunks
+  // Rerank via Cohere for better relevance ordering (falls back to cosine if unavailable)
+  return rerankChunks(query, chunks, limit)
 }
 
 export async function getPinnedDocuments(
@@ -99,15 +104,17 @@ export async function retrieveRelevantContextChunks(
   query: string,
   projectId?: string,
   limit = 5,
-  threshold = 0.7,
+  threshold = 0.6,
   precomputedEmbedding?: number[]
 ): Promise<ContextChunkWithMeta[]> {
   const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
 
+  const retrievalCount = Math.max(15, limit * 3)
+
   const { data, error } = await supabaseAdmin.rpc('match_context', {
     query_embedding: embedding,
     match_threshold: threshold,
-    match_count: limit,
+    match_count: retrievalCount,
   })
 
   if (error) {
@@ -133,7 +140,7 @@ export async function retrieveRelevantContextChunks(
     }
   }
 
-  return chunks
+  return rerankChunks(query, chunks, limit)
 }
 
 interface DecisionWithSimilarity {
@@ -151,15 +158,17 @@ interface DecisionWithSimilarity {
 export async function retrieveRelevantDecisions(
   query: string,
   limit = 5,
-  threshold = 0.7,
+  threshold = 0.6,
   precomputedEmbedding?: number[]
 ): Promise<DecisionWithSimilarity[]> {
   const embedding = precomputedEmbedding || await generateQueryEmbedding(query)
 
+  const retrievalCount = Math.max(15, limit * 3)
+
   const { data, error } = await supabaseAdmin.rpc('match_decisions', {
     query_embedding: embedding,
     match_threshold: threshold,
-    match_count: limit,
+    match_count: retrievalCount,
   })
 
   if (error) {
@@ -167,7 +176,9 @@ export async function retrieveRelevantDecisions(
     return []
   }
 
-  return (data as DecisionWithSimilarity[]) || []
+  const decisions = (data as DecisionWithSimilarity[]) || []
+  return rerankChunks(query, decisions.map(d => ({ ...d, content: d.decision_text })), limit)
+    .then(reranked => reranked.map(r => decisions.find(d => d.id === r.id)!).filter(Boolean))
 }
 
 export function buildContext(

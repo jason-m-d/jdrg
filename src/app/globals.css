@@ -120,3 +120,24 @@
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Research card animations */
+@keyframes research-orb {
+  0%, 100% { transform: scale(1); opacity: 0.7; box-shadow: 0 0 8px 2px hsl(30 30% 50% / 0.25); }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px 4px hsl(30 30% 50% / 0.4); }
+}
+
+@keyframes research-ring {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.12); opacity: 0; }
+}
+
+@keyframes research-ambient {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes research-shimmer-line {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

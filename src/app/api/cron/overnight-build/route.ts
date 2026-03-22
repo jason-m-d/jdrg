@@ -22,6 +22,7 @@ import { spawnBackgroundJob, getDailyAutoTriggerCount, logAutoTrigger } from '@/
 import { openrouterClient } from '@/lib/openrouter'
 import { logCronJob } from '@/lib/activity-log'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 export const maxDuration = 60
 
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   // Weekly gate: max 2 overnight builds per week
   const { data: gateState } = await supabaseAdmin
@@ -225,6 +228,12 @@ Then write a brief message to Jason explaining what you built and why: "${opp.re
     builds_spawned: spawned,
     builds_this_week: buildState.builds_this_week,
   })
+  } catch (fatalErr: any) {
+    console.error('[overnight-build] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'overnight-build', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('overnight-build', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }
 
 // Support GET for Vercel Cron

@@ -13,8 +13,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { openrouterClient } from '@/lib/openrouter'
-import { getMainConversation, insertProactiveMessage } from '@/lib/proactive'
+import { getMainConversation } from '@/lib/proactive'
+import { executeArtifactTool } from '@/lib/chat/tools/executors'
+import { executeDeepResearch } from '@/lib/chat/web-search'
 import { CHAT_MODELS, BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { getLangfuse, flushLangfuse } from '@/lib/langfuse'
 import { sendPushToAll } from '@/lib/push'
 import {
   retrieveRelevantChunks,
@@ -33,8 +36,8 @@ const anthropic = new Anthropic({
 
 export const maxDuration = 300 // 5 minutes for complex research
 
-// Research/analysis jobs use Sonnet; simple builds use Flash Lite
-const COMPLEX_JOB_TYPES = ['research', 'analysis', 'sop']
+// Research/analysis jobs use Sonnet; deep_research uses Perplexity; simple builds use Flash Lite
+const COMPLEX_JOB_TYPES = ['research', 'analysis', 'sop', 'deep_research']
 
 export async function POST(req: NextRequest) {
   const auth = req.headers.get('x-cron-secret') || req.headers.get('authorization')
@@ -81,6 +84,13 @@ export async function POST(req: NextRequest) {
     .update({ status: 'running', started_at: new Date().toISOString() })
     .eq('id', jobId)
 
+  const lf = getLangfuse()
+  const lfTrace = lf.trace({
+    name: 'background_job',
+    input: (job as any).prompt?.slice(0, 500),
+    metadata: { job_id: jobId, job_type: (job as any).job_type, conversation_id: (job as any).conversation_id },
+  })
+
   try {
     const result = await executeJob(job as BackgroundJob)
 
@@ -94,17 +104,44 @@ export async function POST(req: NextRequest) {
       })
       .eq('id', jobId)
 
-    // Write summary message to conversation
     const convId = job.conversation_id || await getMainConversation()
-    const messageContent = `🔍 **Background Research Complete**\n\n${result}`
-    await insertProactiveMessage(convId, messageContent)
+    const topicSummary = (job.metadata as any)?.topic_summary as string | undefined
+
+    // Create an artifact with the result so it opens in the side panel
+    const artifactName = topicSummary || 'Research Report'
+    const artifactResult = await executeArtifactTool(
+      { operation: 'create', name: artifactName, content: result, type: 'freeform' },
+      convId,
+      null,
+    )
+    const artifactId = artifactResult.artifact?.id
+
+    // Insert a short proactive message that points to the artifact
+    const announcement = topicSummary
+      ? `Research on "${topicSummary}" just came back — full report is in the panel.`
+      : `That research just came back — full report is in the panel.`
+
+    await supabaseAdmin.from('messages').insert({
+      conversation_id: convId,
+      role: 'assistant',
+      content: announcement,
+      ...(artifactId ? { metadata: { open_artifact_id: artifactId } } : {}),
+    })
+
+    // Touch conversation so it surfaces in recency sorting
+    await supabaseAdmin
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', convId)
 
     // Push notification
-    await sendPushToAll(
-      'Research ready',
-      `I finished looking into this - check your chat.`,
-      `/chat/${convId}`
-    )
+    const pushBody = topicSummary
+      ? `Research on "${topicSummary}" is ready.`
+      : `Your background research just finished — check your chat.`
+    await sendPushToAll('Research ready', pushBody, `/chat/${convId}`)
+
+    lfTrace.update({ output: result.slice(0, 500) })
+    await flushLangfuse()
 
     return NextResponse.json({ status: 'completed', job_id: jobId, result_length: result.length })
   } catch (err: any) {
@@ -124,6 +161,13 @@ export async function POST(req: NextRequest) {
 }
 
 async function executeJob(job: BackgroundJob): Promise<string> {
+  // Deep research: call Perplexity directly, skip the normal AI pipeline
+  if (job.job_type === 'deep_research') {
+    const { result } = await executeDeepResearch(job.prompt)
+    if (!result) throw new Error('Perplexity returned empty response')
+    return result
+  }
+
   const isComplex = COMPLEX_JOB_TYPES.includes(job.job_type)
   const model = isComplex
     ? CHAT_MODELS.primary

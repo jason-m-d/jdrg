@@ -6,6 +6,18 @@ Check this file at the start of every work session. If Jason asks "what's on the
 
 ---
 
+## Feature Backlog
+
+Planned features that are ready to build but parked for later.
+
+### Living Presence — Activity Strip + Suggested Messages
+- **Parked:** 2026-03-21
+- **Plan doc:** `CROSBY-LIVING-PRESENCE-PLAN.md`
+- **What it is:** Two features to make Crosby feel alive when idle. (1) A static background status line below the input showing the last cron that ran (reads from existing `crosby_events` table — no migration needed). (2) Contextual suggestion chips above the input when it's empty, grounded in real context (calendar, action items, stores). Both features were fully planned, critiqued, and verified against the codebase.
+- **Status:** Ready to implement. Read the plan doc before starting.
+
+---
+
 ## Active Issues
 
 _No active issues._

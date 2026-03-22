@@ -10,6 +10,7 @@ import { spawnBackgroundJob, isAutoTriggerRateLimited, getDailyAutoTriggerCount,
 import { openrouterClient } from '@/lib/openrouter'
 import { checkWatchesAgainstEmails, buildWatchMessage, createAutoWatch } from '@/lib/watches'
 import { BACKGROUND_LITE_MODELS, buildMetadata } from '@/lib/openrouter-models'
+import { reportCronFailure } from '@/lib/cron-alerting'
 
 // Anthropic client used only for Claude models (main chat, etc.)
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, baseURL: process.env.ANTHROPIC_BASE_URL })
@@ -180,6 +181,8 @@ export async function POST(req: NextRequest) {
   }
 
   const cronStart = Date.now()
+
+  try {
 
   let totalProcessed = 0
   let totalItems = 0
@@ -526,6 +529,12 @@ export async function POST(req: NextRequest) {
 
   void logCronJob({ job_name: 'email-scan', success: true, duration_ms: Date.now() - cronStart, summary: `Processed ${totalProcessed} emails, found ${totalItems} action items` })
   return NextResponse.json({ emails_processed: totalProcessed, action_items_found: totalItems })
+  } catch (fatalErr: any) {
+    console.error('[email-scan] FATAL:', fatalErr?.message)
+    void logCronJob({ job_name: 'email-scan', success: false, duration_ms: Date.now() - cronStart, summary: `Fatal error: ${fatalErr?.message?.slice(0, 200)}` })
+    void reportCronFailure('email-scan', fatalErr)
+    return NextResponse.json({ error: fatalErr?.message || 'Unknown error' }, { status: 500 })
+  }
 }
 
 async function processWatchMatches(matches: Awaited<ReturnType<typeof checkWatchesAgainstEmails>>) {

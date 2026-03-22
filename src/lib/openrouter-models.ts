@@ -16,7 +16,10 @@ export const BACKGROUND_LITE_MODELS = {
 }
 
 export const SEARCH_MODELS = {
-  primary: 'perplexity/sonar-pro-search',
+  /** Fast factual lookups — use for most web searches */
+  quick: 'perplexity/sonar-pro-search',
+  /** Multi-hop deep research — expensive (~$0.20-0.50/call), use only when user explicitly asks to research */
+  deep: 'perplexity/sonar-deep-research',
   provider: { sort: 'price' as const },
 }
 
@@ -49,6 +52,8 @@ export interface CallMetadata {
   user_id?: string
   session_id?: string
   conversation_id?: string
+  /** Active Langfuse trace ID — correlates OpenRouter-forwarded metadata with direct SDK traces */
+  traceId?: string
 }
 
 export function buildMetadata(meta: CallMetadata): CallMetadata {

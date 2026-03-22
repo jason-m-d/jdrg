@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/embed-messages",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/run-background-jobs",
+      "schedule": "* * * * *"
     }
   ]
 }

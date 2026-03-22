@@ -33,7 +33,7 @@ import {
   executeSearchConversationHistory,
   executeGetActivityLog,
 } from '@/lib/chat/tools/executors'
-import { executeWebSearch, executeDeepResearch } from '@/lib/chat/web-search'
+import { executeWebSearch } from '@/lib/chat/web-search'
 import { extractMemories } from '@/lib/chat/memory-extraction'
 import { acknowledgeOutboxTopics } from '@/lib/proactive'
 import { extractFromRecentMessages } from '@/lib/chat/extraction'
@@ -579,20 +579,6 @@ export async function POST(req: NextRequest) {
                     }
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                       web_search: { query: toolInput.query, result: toolResult.result || toolResult.message },
-                    })}\n\n`))
-                  } else if (currentToolUse.name === 'deep_research') {
-                    try {
-                      const { result, citations } = await executeDeepResearch(toolInput.query)
-                      if (citations.length > 0) {
-                        accumulatedCitations = [...accumulatedCitations, ...citations]
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ citations })}\n\n`))
-                      }
-                      toolResult = { status: 'ok', result }
-                    } catch (e: any) {
-                      toolResult = { status: 'error', message: e.message }
-                    }
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                      web_search: { query: toolInput.query, result: toolResult.result || toolResult.message, deep: true },
                     })}\n\n`))
                   } else if (currentToolUse.name === 'spawn_background_job') {
                     try {
