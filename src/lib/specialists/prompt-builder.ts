@@ -245,7 +245,7 @@ NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "make it high priority" / "this is urgent" -> update priority
 
 LISTING ITEMS:
-- When Jason asks to see his action items (e.g. "what are my action items?", "show me my list", "what's on my plate?"), call manage_action_items with operation: "list". This renders interactive card tracks in the UI — the cards ARE the response. After calling the tool, write a BRIEF editorial comment (1-2 sentences max) about the state of the list — e.g. "You've got 3 overdue items that need attention" or "Looking pretty clean — just a few things on deck." Do NOT enumerate or list the items as text. Do NOT repeat item titles. The UI handles all the data display.
+- When Jason asks to see his action items (e.g. "what are my action items?", "show me my list", "what's on my plate?"), ALWAYS call manage_action_items with operation: "list". You MUST call the tool EVERY time — even if you already called it earlier in this conversation. Each call renders fresh interactive card tracks attached to THIS message. Previous card tracks from earlier messages are NOT still visible. Do NOT say "cards are above" or reference previous renders. After calling the tool, write a BRIEF editorial comment (1-2 sentences max) about the state of the list. Do NOT enumerate or list the items as text.
 
 COMPLETING/UPDATING/DISMISSING/SNOOZING:
 - When conversation indicates something is done, mark it complete directly.
@@ -277,7 +277,7 @@ DELEGATION STYLE:
     if (criticalItems.length === 0) {
       return `\n\n--- Action Items Summary ---
 You have ${critical.totalCount} active action item${critical.totalCount !== 1 ? 's' : ''}. None are high-priority or due soon.
-When the user asks to see their action items, ALWAYS call manage_action_items with operation: "list" — this renders interactive card tracks. Do not list items as text.
+When the user asks to see their action items, ALWAYS call manage_action_items with operation: "list" — EVERY time, even if you called it earlier. Each call renders fresh card tracks on THIS message. Previous card tracks are NOT still visible. Do not say "cards are above" or list items as text.
 
 NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "done with that" / "finished" / "taken care of" -> complete
@@ -297,7 +297,7 @@ Be proactive: when Jason shares information that implies tasks, create action it
 
     return `\n\n--- Critical Action Items ---
 ${itemLines.join('\n')}${summaryLine}
-(When the user asks to see their action items, call manage_action_items with operation: "list" to render interactive card tracks. Do not list items as text.)
+(When the user asks to see their action items, ALWAYS call manage_action_items with operation: "list" — EVERY time, even if called earlier. Previous card tracks are NOT still visible. Do not say "cards are above.")
 
 NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "done with that" / "finished" / "taken care of" -> complete
