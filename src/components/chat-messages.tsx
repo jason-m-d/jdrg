@@ -420,9 +420,9 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
       {isProactive && messageType && <ProactiveFeedback messageType={messageType} />}
 
       {/* Card Tracks (action items list, etc.) */}
-      {message.cardTrackEvents && message.cardTrackEvents.length > 0 && onSendMessage && (
+      {message.cardTrackEvents && message.cardTrackEvents.length > 0 && (
         <div className="mt-4 -mx-1">
-          <CardTrackGroup tracks={message.cardTrackEvents} onSendMessage={onSendMessage} />
+          <CardTrackGroup tracks={message.cardTrackEvents} onSendMessage={onSendMessage || (() => {})} />
         </div>
       )}
 
