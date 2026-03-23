@@ -292,11 +292,11 @@ Be proactive: when Jason shares information that implies tasks, create action it
       item => `- [${item.id}] "${item.title}" | status: ${item.status} | priority: ${item.priority}${item.due_date ? ` | due: ${item.due_date}` : ''}${item.snoozed_until ? ` | snoozed until: ${item.snoozed_until}` : ''}`
     )
     const summaryLine = otherCount > 0
-      ? `\n(+ ${otherCount} other action item${otherCount !== 1 ? 's' : ''} not shown — if you need the full list, use request_additional_context with data_needed: ["action_items"])`
+      ? `\n(+ ${otherCount} other active item${otherCount !== 1 ? 's' : ''} not shown)`
       : ''
 
     return `\n\n--- Critical Action Items ---
-${itemLines.join('\n')}
+${itemLines.join('\n')}${summaryLine}
 (When the user asks to see their action items, call manage_action_items with operation: "list" to render interactive card tracks. Do not list items as text.)
 
 NATURAL LANGUAGE MATCHING - match by description, not ID:

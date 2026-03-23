@@ -97,7 +97,7 @@ export default function ConversationPage() {
         setInitialLoading(false)
 
         // Auto-open artifact panel if the most recent proactive message points to one
-        const lastArtifactMsg = [...msgsWithTracks].reverse().find(
+        const lastArtifactMsg = [...msgs].reverse().find(
           (m: any) => m.metadata?.open_artifact_id
         )
         if (lastArtifactMsg) {
