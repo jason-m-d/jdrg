@@ -226,6 +226,8 @@ ${lines.join('\n')}`
       item => `- [${item.id}] "${item.title}" | status: ${item.status} | priority: ${item.priority}${item.due_date ? ` | due: ${item.due_date}` : ''}${item.snoozed_until ? ` | snoozed until: ${item.snoozed_until}` : ''}`
     )
     return `\n\n--- Active Action Items ---
+⚠️ IMPORTANT: The items below are for context when creating/updating/completing items. When the user asks to SEE their action items, you MUST call manage_action_items with operation: "list" — do NOT write them out as text. The tool call renders interactive card tracks in the UI.
+
 ${itemLines.join('\n')}
 
 You are the PRIMARY interface for Jason's action items. He manages them through conversation with you, not through a list UI.
@@ -275,7 +277,7 @@ DELEGATION STYLE:
     if (criticalItems.length === 0) {
       return `\n\n--- Action Items Summary ---
 You have ${critical.totalCount} active action item${critical.totalCount !== 1 ? 's' : ''}. None are high-priority or due soon.
-If you need the full list, use request_additional_context with data_needed: ["action_items"].
+When the user asks to see their action items, ALWAYS call manage_action_items with operation: "list" — this renders interactive card tracks. Do not list items as text.
 
 NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "done with that" / "finished" / "taken care of" -> complete
@@ -294,7 +296,8 @@ Be proactive: when Jason shares information that implies tasks, create action it
       : ''
 
     return `\n\n--- Critical Action Items ---
-${itemLines.join('\n')}${summaryLine}
+${itemLines.join('\n')}
+(When the user asks to see their action items, call manage_action_items with operation: "list" to render interactive card tracks. Do not list items as text.)
 
 NATURAL LANGUAGE MATCHING - match by description, not ID:
 - "done with that" / "finished" / "taken care of" -> complete
