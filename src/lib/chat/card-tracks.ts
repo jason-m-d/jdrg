@@ -109,7 +109,8 @@ function findPotentialDuplicates(items: ActionItem[]): string[] {
 }
 
 /**
- * Converts card track events to a persistence-friendly format (item IDs only).
+ * Converts card track events to a persistence-friendly format.
+ * Includes full item data so hydration on page reload doesn't need a second DB query.
  */
 export function cardTracksToMetadata(tracks: CardTrackEvent[]): Record<string, unknown> {
   return {
@@ -119,6 +120,7 @@ export function cardTracksToMetadata(tracks: CardTrackEvent[]): Record<string, u
       section_label: t.section_label,
       section_priority: t.section_priority,
       item_ids: t.items.map(i => i.id),
+      items: t.items,
       suggested_actions: t.suggested_actions,
     })),
   }

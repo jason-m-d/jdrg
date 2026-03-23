@@ -77,35 +77,23 @@ export default function ConversationPage() {
       .then(async ({ data }) => {
         const msgs = data || []
         // Hydrate card tracks from metadata
-        const allItemIds: string[] = []
-        const msgsWithTracks = msgs.map((m: any) => {
+        for (const m of msgs) {
           if (m.metadata?.card_tracks) {
-            for (const t of m.metadata.card_tracks) {
-              if (t.item_ids) allItemIds.push(...t.item_ids)
-            }
-          }
-          return m
-        })
-        if (allItemIds.length > 0) {
-          const { data: items } = await supabase
-            .from('action_items')
-            .select('*')
-            .in('id', allItemIds)
-          const itemMap = new Map((items || []).map((i: any) => [i.id, i]))
-          for (const m of msgsWithTracks) {
-            if (m.metadata?.card_tracks) {
-              m.cardTrackEvents = m.metadata.card_tracks
-                .map((t: any) => ({
-                  ...t,
-                  items: (t.item_ids || [])
-                    .filter((id: string) => itemMap.has(id))
-                    .map((id: string) => ({ id, type: 'action_item', data: itemMap.get(id) })),
-                }))
-                .filter((t: any) => t.items.length > 0)
+            // Use saved items directly (new format), fall back to item_ids lookup (old format)
+            const tracks = m.metadata.card_tracks
+              .map((t: any) => ({
+                ...t,
+                items: t.items && t.items.length > 0
+                  ? t.items
+                  : (t.item_ids || []).map((itemId: string) => ({ id: itemId, type: 'action_item', data: null })),
+              }))
+              .filter((t: any) => t.items.length > 0 && t.items[0]?.data)
+            if (tracks.length > 0) {
+              m.cardTrackEvents = tracks
             }
           }
         }
-        setMessages(msgsWithTracks)
+        setMessages(msgs)
         setInitialLoading(false)
 
         // Auto-open artifact panel if the most recent proactive message points to one
