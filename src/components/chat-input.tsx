@@ -6,6 +6,7 @@ import {
   Mail, Calendar, TrendingUp, CheckSquare, MessageSquare,
   Globe, Brain, Users, StickyNote, LayoutDashboard,
 } from 'lucide-react'
+import { ActivityStatusLine } from '@/components/activity-status-line'
 
 // ---------------------------------------------------------------------------
 // Local regex classifier — mirrors intent-classifier.ts domain → chip mapping.
@@ -444,8 +445,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           />
         </div>
 
-        {/* Model picker */}
-        <div className="relative mt-2 flex items-center">
+        {/* Model picker + status line */}
+        <div className="relative mt-2 flex items-center justify-between">
           <button
             onClick={() => setModelPickerOpen(o => !o)}
             className="flex items-center gap-1 text-[0.7rem] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
@@ -453,6 +454,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             {MODELS.find(m => m.id === model)?.label}
             <ChevronDown className="size-3" />
           </button>
+          <ActivityStatusLine />
           {modelPickerOpen && (
             <div className="absolute bottom-6 left-0 z-10 border border-border bg-background shadow-md min-w-[160px]">
               {MODELS.map(m => (
