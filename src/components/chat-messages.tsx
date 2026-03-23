@@ -353,6 +353,13 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
         )}
       </div>
 
+      {/* Card Tracks (action items list, etc.) — rendered first, above text */}
+      {message.cardTrackEvents && message.cardTrackEvents.length > 0 && (
+        <div className="mb-4 -mx-1">
+          <CardTrackGroup tracks={message.cardTrackEvents} onSendMessage={onSendMessage || (() => {})} />
+        </div>
+      )}
+
       {/* Content */}
       <div className={cn(
         "text-[0.9375rem] leading-[1.7]",
@@ -418,13 +425,6 @@ function MessageBlock({ message, isLatest, isStreaming, toolStatus, onArtifactCl
 
       {/* Proactive feedback */}
       {isProactive && messageType && <ProactiveFeedback messageType={messageType} />}
-
-      {/* Card Tracks (action items list, etc.) */}
-      {message.cardTrackEvents && message.cardTrackEvents.length > 0 && (
-        <div className="mt-4 -mx-1">
-          <CardTrackGroup tracks={message.cardTrackEvents} onSendMessage={onSendMessage || (() => {})} />
-        </div>
-      )}
 
       {/* Action Items */}
       {message.actionItemEvents && message.actionItemEvents.length > 0 && (
