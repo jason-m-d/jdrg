@@ -25,12 +25,13 @@ The process: structured interview, one feature area at a time, going deep on eac
 | Watches & monitors | WATCHES-MONITORS.md | Deep pass complete (auto-creation, resolution, watch vs monitor, staleness) |
 | Briefings & nudges | BRIEFINGS-NUDGES.md | Deep pass complete (visual distinction, batching, quiet hours, learning from all actions) |
 | Persistent memory | PERSISTENT-MEMORY.md | Deep pass complete (four-type model, async extraction, hybrid retrieval, retrieval-time Expert boosting, living greeting, contradiction handling) |
+| Contacts & entity resolution | CONTACTS-ENTITY-RESOLUTION.md | Deep pass complete (two-tier model, entity resolution layers, role aliases, queryable graph, chat-native + side panel UI) |
 
 ---
 
 ## Currently Discussing
 
-**Ready for next feature area.** Persistent memory complete. Pick any from the backlog below to continue.
+**Ready for next feature area.** Contacts & entity resolution complete. Pick any from the backlog below to continue.
 
 ---
 
@@ -40,7 +41,7 @@ The process: structured interview, one feature area at a time, going deep on eac
 - [x] ~~Commitment tracking~~ → same system as tasks with behavioral flag, faster escalation, accountability tone
 - [x] ~~Decision tracking~~ → quiet capture, drift detection, pattern recognition ("last time we did X")
 - [x] ~~Persistent memory~~ → four-type model (semantic/episodic/procedural/working), async extraction, hybrid retrieval with RRF, retrieval-time Expert boosting, living mutable greeting, email data stays in own DB
-- [ ] Contacts (auto-creation, enrichment, relationship scoring, UI)
+- [x] ~~Contacts & entity resolution~~ → two-tier model (shadow records + promoted contacts), layered entity resolution (deterministic → probabilistic → contextual), role aliases with contextual disambiguation, queryable graph via tool, chat-native UI with side panel browse
 - [ ] Notepad (ephemeral vs persistent, auto-expire, user visibility)
 - [ ] Deep research (background execution, report format, delivery)
 - [ ] Web search (quick vs deep tiers, inline vs report)
@@ -80,4 +81,10 @@ The process: structured interview, one feature area at a time, going deep on eac
 - Memory visibility: settings panel with grouped view (facts/events/patterns), search, edit, delete. No internal plumbing exposed.
 - Living greeting: inline message that mutates in place until responded to. Regenerates on meaningful state change (events, time gap, day change). Freezes into permanent timeline message once Jason responds. Content-driven (what happened) not time-driven (how long away). This IS the catch-up from proactive messages — same system.
 - Email gets its own dedicated data layer. Cron cross-references email DB against active tasks/watches/contacts. Users can explicitly promote email content to memory.
-- Entity resolution (inconsistent naming) is the highest-severity known risk — to be designed alongside Contacts.
+- Entity resolution (inconsistent naming) is the highest-severity known risk — to be designed alongside Contacts. **Resolved** in CONTACTS-ENTITY-RESOLUTION.md: layered resolution (exact match → probabilistic → contextual confirmation), no merge queue, resolutions stored permanently.
+- Contacts: two-tier model — shadow records (auto-created, invisible, for entity resolution) + promoted contacts (user-facing). Promotion is automatic and silent based on interaction signals.
+- Contact records are thin (identity, channels, relationship type, interaction metadata). Rich facts about people live in memory, linked by entity tags.
+- Entity resolution: deterministic first (email/phone), then probabilistic (name similarity + domain + context). No merge queue — Crosby resolves in-context, confirms inline only when stakes are high.
+- Role aliases ("my lawyer", "the bookkeeper") extracted implicitly from conversation, contextually disambiguated, shift over time.
+- Contact graph is queryable — `query_contacts` tool for natural language questions about the user's network.
+- Contacts UI: chat-native by default, side panel for browsing on request. No dedicated page. **Resolved** in CONTACTS-ENTITY-RESOLUTION.md: layered resolution (exact match → probabilistic → contextual confirmation), no merge queue, resolutions stored permanently.
