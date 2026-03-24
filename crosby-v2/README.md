@@ -50,6 +50,7 @@ crosby-v2/
 | product/TASKS-COMMITMENTS.md | Tasks & commitments — same system with behavioral distinction, commitment = higher accountability/faster escalation, decision tracking (quiet capture, drift detection, pattern recognition) | 2026-03-23 |
 | product/ARTIFACTS.md | Artifacts — Crosby-created documents, side panel display, two-way editing, interactive elements, Expert integration, Documents vs Artifacts distinction | 2026-03-23 |
 | product/PROACTIVE-MESSAGES.md | Proactive messages taxonomy — briefings, nudges, heads-ups, catch-ups; anti-overwhelm principle, escalation model, absorption/grouping rules, dedup | 2026-03-23 |
+| product/PERSISTENT-MEMORY.md | Persistent memory — four-type model (semantic/episodic/procedural/working), async extraction, hybrid retrieval with RRF + LLM gating, retrieval-time Expert boosting, living mutable greeting, contradiction handling with supersession, email stays in own DB, hover-to-save, known failure modes | 2026-03-23 |
 | product/DISCOVERY-STATUS.md | Product discovery status — completed areas, current discussion, outstanding feature areas, key decisions made | 2026-03-23 |
 | research/llm-architecture-best-practices-2026-gemini.md | Gemini research report: system prompt architecture, tool design, context management, routing, observability, streaming/error handling | 2026-03-23 |
 | research/llm-architecture-best-practices-2026-perplexity.md | Perplexity research report: same topics, with specific tool/provider recommendations (Exa, LiteLLM, Langfuse, Vercel AI SDK 6, semantic tool retrieval) | 2026-03-23 |
