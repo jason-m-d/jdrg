@@ -39,12 +39,13 @@ The process: structured interview, one feature area at a time, going deep on eac
 | Settings page | SETTINGS.md | Deep pass complete (5 tab groups: Account, Connections, Notifications, Memory & Learning, Preferences. Everything also configurable via chat.) |
 | Silos | SILOS.md | Deep pass complete (three tiers: core/marketplace/custom, agentic builder pipeline, cross-silo tunnels, self-healing, credential management, router integration) |
 | Data deletion & privacy | DATA-DELETION-PRIVACY.md | Deep pass complete (per-entity deletion rules, account deletion with 24h grace, retention policies, procedural memory = prompt removal) |
+| Error handling & graceful degradation | ERROR-HANDLING-GRACEFUL-DEGRADATION.md | Deep pass complete (status banner for AI, per-integration health model, 2-retry policy, stale data mentions issue not just timestamp, backfill on reconnect) |
 
 ---
 
 ## Currently Discussing
 
-**Ready for next feature area.** All feature areas from the original backlog are now covered, including data deletion & privacy (completed 2026-03-25).
+**Ready for next feature area.** All cross-cutting concerns now covered including error handling & graceful degradation (completed 2026-03-25).
 
 ---
 
