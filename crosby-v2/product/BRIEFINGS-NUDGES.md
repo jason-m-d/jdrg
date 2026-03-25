@@ -45,6 +45,7 @@ All sections are **customizable** — user tells Crosby what to include/exclude 
 Shorter, more frequent, more reactive. Nudges are Crosby noticing something needs attention and poking the user about it. They're the "alive" feature — what makes Crosby feel proactive rather than reactive.
 
 ### Two Trigger Types
+> **Note:** Event-driven alerts (watch resolutions, urgent emails, monitor matches) are classified as **heads-ups** in the proactive messages taxonomy (see PROACTIVE-MESSAGES.md). They're included here for context since this spec was written before the taxonomy was finalized. Nudges proper are timer/cron-based accountability messages. Heads-ups are immediate, event-driven alerts.
 
 **Timer-based:**
 - Runs on a configurable interval (default TBD — every few hours?)
@@ -72,9 +73,10 @@ Shorter, more frequent, more reactive. Nudges are Crosby noticing something need
 - When the user opens the app, individual items are visible as separate cards/items in the timeline
 
 ### Quiet Hours
-- **User-configured** in Settings or conversationally ("don't nudge me after 10pm")
-- No system default — the user decides their own quiet window
-- Urgent alerts during quiet hours: TBD (probably still deliver, but this is a Settings choice)
+- **Default: 9:00 PM – 7:00 AM** (user's local time). User-configurable in Settings or conversationally ("don't nudge me after 10pm").
+- During quiet hours, all notifications are held and absorbed into the morning briefing. No flood of individual notifications when quiet hours end.
+- **Breakthrough rules** allow exceptions: the user tells Crosby what should always get through ("always notify me if Roger emails", "break through for deployment failures"). Stored as persistent rules.
+- See NOTIFICATIONS.md for the full quiet hours and delivery tier spec.
 
 ### Delivery
 - **Push notification** — for both types (respecting batching rules and quiet hours)
@@ -89,7 +91,7 @@ Shorter, more frequent, more reactive. Nudges are Crosby noticing something need
 | | Briefings | Nudges |
 |---|---|---|
 | Frequency | Finite, scheduled (2-3x/day) | Ongoing, as needed |
-| Trigger | Time-based only | Time-based + event-driven |
+| Trigger | Time-based only | Time-based / cron (event-driven alerts are "heads-ups" — see PROACTIVE-MESSAGES.md) |
 | Scope | Comprehensive — everything relevant | Focused — specific items |
 | Tone | "Here's your world" | "Hey, don't forget" or "This just happened" |
 | Length | Longer, structured sections | Short, 3-5 items or single alert |

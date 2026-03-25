@@ -63,6 +63,8 @@ crosby-v2/
 | product/TEXT-SMS.md | Text/SMS integration — optional power-user feature, macOS helper app, guided setup wizard, read-only iMessage monitoring, context + commitments, graceful degradation | 2026-03-24 |
 | product/ONBOARDING.md | Onboarding / cold start — conversational onboard, email-first "wow" moment, invisible completeness score, bottom sheet OAuth, silent graduation, cold start behavior for all systems | 2026-03-24 |
 | product/SETTINGS.md | Settings page — 5 tab groups (Account, Connections, Notifications, Memory & Learning, Preferences), everything also configurable via chat, read-mostly design | 2026-03-24 |
+| product/SILOS.md | Silos — capability modules (tools, data connections, sync, prompt context). Three tiers: core/marketplace/custom. Agentic builder, cross-silo tunnels, self-healing, credential management | 2026-03-24 |
+| product/GAPS-AND-CONTRADICTIONS.md | Audit results — gaps, contradictions, and open items across all specs, prioritized and tracked for resolution | 2026-03-24 |
 | product/DISCOVERY-STATUS.md | Product discovery status — completed areas, current discussion, outstanding feature areas, key decisions made | 2026-03-24 |
 | research/llm-architecture-best-practices-2026-gemini.md | Gemini research report: system prompt architecture, tool design, context management, routing, observability, streaming/error handling | 2026-03-23 |
 | research/llm-architecture-best-practices-2026-perplexity.md | Perplexity research report: same topics, with specific tool/provider recommendations (Exa, LiteLLM, Langfuse, Vercel AI SDK 6, semantic tool retrieval) | 2026-03-23 |

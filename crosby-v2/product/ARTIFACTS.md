@@ -79,7 +79,8 @@ Examples: a marketing plan, a research summary, a checklist, a comparison table,
 - **Memory**: Artifacts are a form of structured memory — they persist knowledge that Crosby and the user built together. Different from Crosby's internal memory (which the user doesn't see) and different from documents (which are external uploads).
 - **Mobile**: The side panel doesn't work on mobile the same way. Need a mobile-specific treatment — probably full-screen artifact view with a way to flip back to chat.
 - **Real-time sync**: If the user edits an artifact directly and Crosby sees changes in real-time, there's a sync architecture requirement. WebSocket or Supabase Realtime for artifact state.
-- **Versioning**: If both Crosby and the user can edit, there's a question of conflict resolution and history. At minimum, artifact edits should be versioned so you can see what changed and when.
+- **Conflict resolution**: User always wins. Behavioral editing lock — when the user is actively editing, Crosby cannot write to the artifact. Crosby queues any pending updates and presents them when the user stops editing: "I had some changes for this — want me to apply them?" [Apply changes] [Show me first] [Skip]. If Crosby is mid-generation when the user starts editing, it finishes generating but holds the result as a proposed update instead of writing directly.
+- **Versioning**: If both Crosby and the user can edit, there's a question of history. At minimum, artifact edits should be versioned so you can see what changed and when.
 
 ---
 
@@ -91,4 +92,4 @@ Examples: a marketing plan, a research summary, a checklist, a comparison table,
 - [ ] Can an artifact be "detached" from an Expert and become standalone?
 - [ ] Can the user share or export an artifact (PDF, email, etc.)?
 - [ ] Mobile treatment — full-screen takeover with back-to-chat, or something else?
-- [ ] Conflict handling — if Crosby and the user try to edit simultaneously, who wins?
+- [x] ~~Conflict handling~~ → User always wins. Behavioral editing lock: user editing = Crosby can't write. Crosby queues updates and presents them when user stops. See GAPS-AND-CONTRADICTIONS.md #12.

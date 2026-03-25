@@ -69,9 +69,9 @@ Each procedural memory contains:
 
 **Procedural memories need their own retrieval path.** They are pattern-match triggers, not semantically searchable content. A lightweight classifier checks for procedural triggers alongside (not inside) the main retrieval pipeline.
 
-### 4. Working Memory — Current Session Context
-What it stores: the live conversation — recent messages in the context window.
-No dedicated storage needed — this is the standard conversation context that's already loaded per request. Handled by the existing message history system.
+### 4. Working Memory — Notepad
+What it stores: temporary context that needs to survive beyond the current context window but isn't permanent enough for memory.
+**The notepad IS the working memory layer.** See NOTEPAD.md for the full spec. Crosby creates notepad entries during working processes; they have per-entry expiry set by Crosby, Expert tagging, and are visible to the user in the sidebar. Classification at capture: durable facts → memory, temporary context → notepad.
 
 ---
 
@@ -296,6 +296,6 @@ Memory feels like natural conversation, not database lookups:
 - **Experts:** Memory retrieval boosts based on active Expert context. Expert descriptions auto-enrich from conversation content over time.
 - **Tasks & Commitments:** Commitment extraction is a specialization of memory extraction. Commitments are semantic memories with a commitment flag and accountability rules.
 - **Watches:** Watch creation from conversation ("I'm waiting on Mike's reply") is a memory extraction event that also creates a watch record.
-- **Briefings & Catch-ups:** The living greeting IS the catch-up message from PROACTIVE-MESSAGES.md. Same system, not two separate features.
+- **Briefings & Living Greeting:** The living greeting replaces the "catch-up" type from PROACTIVE-MESSAGES.md. It appears on every app load after 15+ minutes of inactivity. If there's new context (emails, watch resolutions, calendar changes), the greeting IS the catch-up. If nothing happened, it's a simple conversational greeting ("Quiet day. How you doing?"). Under 15 minutes away = no greeting at all.
 - **Email:** Email data lives in its own DB, not memory. A cron cross-references email against active tasks/watches/contacts. Users can explicitly promote email content to memory.
 - **Training & Learning:** Procedural memory is the foundation for learning user patterns. Training rules are procedural memories with higher confidence thresholds.

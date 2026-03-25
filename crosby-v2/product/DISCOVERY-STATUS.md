@@ -37,6 +37,7 @@ The process: structured interview, one feature area at a time, going deep on eac
 | Text / SMS integration | TEXT-SMS.md | Deep pass complete (optional power-user feature, macOS helper app, guided setup wizard, read-only, graceful degradation, manual fallback for non-Mac users) |
 | Onboarding / cold start | ONBOARDING.md | Deep pass complete (conversational onboard, email-first "wow" moment, invisible completeness score, bottom sheet OAuth, silent graduation, context-driven integration suggestions) |
 | Settings page | SETTINGS.md | Deep pass complete (5 tab groups: Account, Connections, Notifications, Memory & Learning, Preferences. Everything also configurable via chat.) |
+| Silos | SILOS.md | Deep pass complete (three tiers: core/marketplace/custom, agentic builder pipeline, cross-silo tunnels, self-healing, credential management, router integration) |
 
 ---
 

@@ -45,7 +45,29 @@ This is the extensibility/silo system applied to the UI layer. Not in scope for 
 
 ## Experts and the Nav
 
-Experts are currently chat-native (summoned by mention, or accessed via click from within chat). Whether Experts eventually get their own nav entry is an open question — but the default should be no dedicated nav entry. The chat is the access point.
+**Resolved:** On web, Experts live in the left sidebar below the three main pages (Home, Documents, Settings). Each Expert is listed with a color-coded dot and its name. A + button allows creating new Experts. Clicking an Expert activates its context in the chat.
+
+On mobile, Experts get their own bottom nav tab (Chat, Documents, Experts, Settings) since there's no left sidebar. The Experts tab shows the full Expert list.
+
+The left sidebar layout (web):
+```
+CROSBY
+─────────
+Home          (active indicator)
+Documents
+Settings
+
+EXPERTS       +
+■ 1008 Sale
+■ Finance
+■ House Hunting
+■ HR
+■ Legal
+■ Marketing
+■ Operations
+
+Sign Out
+```
 
 ---
 
@@ -68,7 +90,7 @@ Experts are currently chat-native (summoned by mention, or accessed via click fr
 
 ## Open Questions
 
-- [ ] Where does the Experts list live if not in the nav? Inside the chat sidebar? A sheet/modal triggered from the chat?
-- [ ] Does Settings have sub-sections? What are they?
-- [ ] On mobile — same three-tab structure, or different?
+- [x] ~~Where does the Experts list live?~~ → Left sidebar on web, below the 3 main pages. Bottom nav tab on mobile.
+- [x] ~~Does Settings have sub-sections?~~ → Yes, 5 tab groups: Account, Connections, Notifications, Memory & Learning, Preferences. See SETTINGS.md.
+- [x] ~~On mobile — same structure or different?~~ → Bottom nav bar: Chat, Documents, Experts, Settings. See MOBILE-EXPERIENCE.md.
 - [ ] When an Expert is deleted, do its documents persist on the Documents page (untagged)?

@@ -23,10 +23,10 @@ Together, these make Crosby feel like it's working 24/7 — not just responding 
 - **Always accessible** — even when collapsed, a minimal indicator shows it's there
 
 ### Widget system
-- Crosby builds widgets from a **component library** — predefined building blocks that it assembles and configures. Not freeform code generation.
-- Building blocks include: charts (line, bar, pie), tables, metric cards (single number + trend), lists, status indicators, timelines, progress bars, and more as needed.
-- Crosby composes these blocks to create the right visualization for the data. Output is always polished and consistent — no slop.
-- The component library grows over time as new block types are needed.
+- Crosby builds widgets from an **existing dashboard component library** (e.g., Tremor or similar React/Tailwind dashboard toolkit) — not freeform code generation.
+- The library provides battle-tested, consistent components: metric cards, line/bar/pie charts, tables, lists, status indicators, progress bars, sparklines, scorecards, funnels, heatmaps, activity feeds, calendar previews, countdowns, checklists, and more.
+- Crosby knows which components exist and how to configure them with data. It composes the right visualization for the data source. Output is always polished and consistent — no slop.
+- Using an existing library means the component set grows with the library's ecosystem, not through custom development.
 
 ### Widget data sources
 - Widgets can pull from **anything Crosby has access to**: silo integrations (POS, Shopify, etc.), internal app data (tasks, messages, calendar), conversation history, memory, or any combination.
