@@ -35,29 +35,34 @@ Jason already made every product decision. The specs are complete. The architect
 **Do NOT write any code until this gate clears.** Run through every item below. Check what you can check automatically. For everything you can't verify, compile it into ONE message to Jason and wait for his response.
 
 ### Auto-Check (verify silently):
-- [ ] OpenRouter API key exists in environment (`$OPENROUTER_API_KEY`)
-- [ ] Supabase MCP server is responding (try a simple query)
-- [ ] Langfuse MCP server is responding (try a simple query)
-- [ ] EAS CLI installed (`eas --version`)
 - [ ] pnpm installed (`pnpm --version`)
 - [ ] Turborepo installed (`turbo --version`)
+- [ ] EAS CLI installed (`eas --version`)
+- [ ] Supabase MCP server is responding (try a simple query)
+- [ ] Langfuse MCP server is responding (try a simple query)
 
-### Need From Jason (ask all at once):
-- [ ] v2 Supabase project URL (`SUPABASE_URL`)
-- [ ] v2 Supabase anon key (`SUPABASE_ANON_KEY`)
-- [ ] v2 Supabase service role key (`SUPABASE_SERVICE_ROLE_KEY`)
-- [ ] Google OAuth client ID (`GOOGLE_CLIENT_ID`) — may be same as v1
-- [ ] Google OAuth client secret (`GOOGLE_CLIENT_SECRET`) — may be same as v1
-- [ ] Confirmation that OpenRouter has credit balance for the build
+### Credentials — All Pre-Loaded
 
-GitHub repo is already set: `https://github.com/jason-m-d/crosbyv2.git`
-Vercel project is deferred — not needed until deployment.
+**v2 Supabase** (new project, "Crosby"):
+- `SUPABASE_URL` = `https://pyrnukazfyvpigutajfx.supabase.co`
+- `SUPABASE_ANON_KEY` = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cm51a2F6Znl2cGlndXRhamZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Mzg0NzQsImV4cCI6MjA5MDExNDQ3NH0.adivFZrX_JHKynt9LGu4owI3PXMyj8vlZJQMS6HLvnk`
+- `SUPABASE_SERVICE_ROLE_KEY` = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cm51a2F6Znl2cGlndXRhamZ4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDUzODQ3NCwiZXhwIjoyMDkwMTE0NDc0fQ.B0rzGxt3-uR5RbUgbvKVOPcyGqwJzM_9YnacOhHotFU`
 
-### How to ask:
-Present Jason with a single, clear checklist of what you need. For each item, explain what it is in one sentence. If some auto-checks failed, include those too ("I also need X installed — should I install it or will you?").
+**Reuse from v1** (read from `~/Development/jdrg/.env.local`):
+- `OPENROUTER_API_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `COHERE_API_KEY`
+- `LANGFUSE_PUBLIC_KEY`
+- `LANGFUSE_SECRET_KEY`
+- `LANGFUSE_BASE_URL`
+
+**Already set:**
+- GitHub repo: `https://github.com/jason-m-d/crosbyv2.git`
+- Vercel project: deferred — not needed until deployment
 
 ### Gate rule:
-Once Jason provides the credentials and confirms the checklist, proceed to Step 3 and don't stop again. If Jason provides partial info ("I'll get the Supabase keys later, start without them"), proceed with what you have and document what's missing in build-state.md — but flag that database-dependent work will be blocked until the keys arrive.
+If any auto-checks fail, install what's missing yourself (e.g. `pnpm install -g turbo`). If v1's `.env.local` is missing keys you need, ask Jason. Otherwise, proceed to Step 3 without stopping.
 
 ---
 
